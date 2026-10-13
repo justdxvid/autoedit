@@ -6,7 +6,7 @@ OUT="${1:-$HOME/Desktop}"
 TMP=$(mktemp -d); PKG="$TMP/AutoEdit"
 mkdir -p "$PKG"
 rsync -a --exclude hyperframes/node_modules --exclude hyperframes/package-lock.json --exclude __pycache__ \
-      --exclude .keep-in-place --exclude make-package.sh --exclude AutoEdit.app "$SRC/" "$PKG/"
+      --exclude .keep-in-place --exclude make-package.sh --exclude .git --exclude .gitignore --exclude AutoEdit.app "$SRC/" "$PKG/"
 # bundle FilmCraft's command-line tool (MIT/Apache-2.0, licences included) so the installer finds it
 CLI=$(ls -d "$HOME"/.local/bin/filmcraft-cli 2>/dev/null && readlink "$HOME/.local/bin/filmcraft-cli" || true)
 CLI_DIR=$(dirname "$(readlink "$HOME/.local/bin/filmcraft-cli" 2>/dev/null || echo /nonexistent/x)")
