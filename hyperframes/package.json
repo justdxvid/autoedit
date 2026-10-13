@@ -1,0 +1,9 @@
+{
+  "name": "autoedit-hyperframes-renderer",
+  "private": true,
+  "description": "Local HyperFrames renderer used by AutoEdit's motion graphics (installed by install.sh)",
+  "dependencies": {
+    "gsap": "3.14.2",
+    "hyperframes": "0.8.151"
+  }
+}

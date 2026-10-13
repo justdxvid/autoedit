@@ -1,0 +1,10 @@
+# installed by install.sh
+hyperframes/node_modules/
+hyperframes/package-lock.json
+# bundled into release zips only (built by make-package.sh)
+filmcraft-cli-*/
+*.zip
+# local
+__pycache__/
+.keep-in-place
+.DS_Store

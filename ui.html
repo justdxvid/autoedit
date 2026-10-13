@@ -1,0 +1,207 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AutoEdit for FilmCraft</title>
+<style>
+:root{--bg:#f6f4fb;--card:#fff;--ink:#1d1b26;--mute:#6b6880;--accent:#7c5cff;--accent-ink:#fff;--line:#e5e1f2;
+ --ok:#1f8a4c;--ok-bg:#e6f6ec;--err:#c0392b;--err-bg:#fdecea;--info-bg:#eef0ff}
+@media(prefers-color-scheme:dark){:root{--bg:#14121c;--card:#1e1b2b;--ink:#f1eefc;--mute:#a29db8;--line:#322e45;
+ --ok:#5fd394;--ok-bg:#16301f;--err:#ff8a7a;--err-bg:#3a1c19;--info-bg:#232042}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:0 12px 32px}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0 8px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.top .row1{display:flex;align-items:center;gap:8px}
+.top h1{font-size:17px;margin:0;flex:1}
+.status{font-size:12px;color:var(--mute);margin-top:4px;display:flex;align-items:center;gap:6px;min-width:0}
+.status span.name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{flex:none;width:8px;height:8px;border-radius:50%;background:#d33}.dot.on{background:#2a9d5c}
+button,.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:8px 13px;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+button.small{padding:4px 9px;font-size:12px}
+button:disabled{opacity:.45;cursor:default}
+details.card{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:8px 0;padding:0 12px}
+details.card[open]{padding-bottom:12px}
+summary{cursor:pointer;list-style:none;padding:10px 0;font-weight:700;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+summary::-webkit-details-marker{display:none}summary::after{content:"›";color:var(--mute);font-size:18px;transition:transform .15s}
+details[open] summary::after{transform:rotate(90deg)}
+summary small{font-weight:400;color:var(--mute);font-size:12px;display:block}
+.card p{margin:0 0 6px;color:var(--mute);font-size:12px}
+label{display:block;margin:8px 0 3px;font-size:12px;font-weight:600}
+input[type=range]{width:100%}
+input.txt{width:100%;padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;margin-top:4px}select{width:100%;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.val{float:right;color:var(--mute);font-weight:400}
+.tip{font-size:12px;color:var(--mute);margin-top:6px}.tip a{color:var(--accent)}
+/* result card */
+#result{display:none;border-radius:12px;padding:12px;margin:8px 0;border:1px solid var(--line)}
+#result.ok{display:block;background:var(--ok-bg);border-color:var(--ok)}
+#result.error{display:block;background:var(--err-bg);border-color:var(--err)}
+#result.info{display:block;background:var(--info-bg)}
+#result.busy{display:block;background:var(--card)}
+#result .title{font-weight:700;display:flex;align-items:center;gap:8px}
+#result.ok .title{color:var(--ok)}#result.error .title{color:var(--err)}
+#result .summary{margin-top:4px;white-space:pre-wrap}
+#result details{margin-top:6px;font-size:12px;color:var(--mute)}
+#result details pre{white-space:pre-wrap;font:12px ui-monospace,monospace;margin:4px 0 0}
+.spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s 0.8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+/* history */
+#hist{list-style:none;margin:0;padding:0}
+#hist li{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line)}
+#hist li:first-child{border-top:0}
+#hist .t{color:var(--mute);font-size:12px;width:38px;flex:none}
+#hist .l{flex:1}
+#hist li.rev .l{text-decoration:line-through;color:var(--mute)}
+#hist .tag{font-size:11px;color:var(--mute)}
+.empty{color:var(--mute);font-size:12px;padding:6px 0}
+.foot{display:flex;gap:6px;margin-top:12px}
+</style>
+<main>
+<div class="top">
+ <div class="row1"><h1>AutoEdit</h1>
+  <button class="ghost small" data-cmd="undo" id="undoBtn" title="Put the project back to just before the last effect">↶ Undo last effect</button></div>
+ <div class="status"><span class="dot" id="dot"></span><span class="name" id="st">Checking…</span>
+  <button class="small" data-cmd="launch" id="launchBtn" style="display:none">Connect</button></div>
+</div>
+
+<div id="result"><div class="title" id="rtitle"></div><div class="summary" id="rsummary"></div>
+ <details id="rmore"><summary style="padding:0;font-weight:400;font-size:12px">Details</summary><pre id="rdetails"></pre></details>
+ <div class="row" id="ractions"></div></div>
+
+<details class="card"><summary><span>🎵 Smooth transitions + music<small>Dissolve every cut, add a song</small></span></summary>
+<label>Dissolve length <span class="val" id="fv">15 frames</span></label><input type="range" id="dissolve" min="6" max="45" value="15">
+<label>Song</label><div class="row" style="margin:0"><select class="musicsel" id="music" style="flex:1"></select><button class="ghost" data-cmd="picksong">Add song…</button></div>
+<div class="tip">Or <a href="#" data-cmd="musicfolder">open your music folder</a> and drop songs into it.</div>
+<label>Music volume <span class="val" id="mv">-14 dB</span></label><input type="range" id="db" min="-30" max="-4" value="-14">
+<label><input type="checkbox" id="mute"> Mute the clips' original sound <span style="font-weight:400;color:var(--mute)">(only for music-only videos; leave off when you're talking)</span></label>
+<div class="row"><button data-cmd="smooth">Apply</button></div></details>
+
+<details class="card"><summary><span>🥁 Beat sync<small>Cuts and zooms land on the music's beat</small></span></summary>
+<p>Needs a song on the timeline (step above).</p>
+<div class="row"><button data-cmd="beatcuts">Snap cuts to the beat</button></div>
+<label>Beat zoom: punch-in every <span class="val" id="bev">4 beats</span></label><input type="range" id="bevery" min="1" max="16" value="4">
+<label>Punch strength <span class="val" id="bav">7 %</span></label><input type="range" id="bamount" min="3" max="20" value="7">
+<div class="row"><button data-cmd="beatzoom">Add beat zooms</button>
+<button class="ghost" data-cmd="beatmarkers">Mark beats</button></div></details>
+
+<details class="card"><summary><span>🔍 Slow zoom<small>Gentle push-in / pull-out per clip</small></span></summary>
+<label>Amount <span class="val" id="zv">8 %</span></label><input type="range" id="amount" min="2" max="20" value="8">
+<div class="row"><button data-cmd="zoom">Apply</button></div></details>
+
+<details class="card"><summary><span>💬 AutoCaptions<small>Speech to on-screen captions</small></span></summary>
+<label>Style</label><select id="cstyle"><option value="pop">Pop: 1–3 big words, outlined (Reels/TikTok)</option><option value="pastel">Pastel: soft pink pill</option><option value="clean">Clean: classic subtitles</option></select>
+<label>Spoken language</label><select class="langsel"><option value="en">English</option><option value="hi">Hindi</option><option value="pa">Punjabi</option><option value="auto">Other / mixed</option></select>
+<div class="row"><button data-cmd="captions">Add captions</button></div>
+<div class="tip">First run on a clip takes a little while (speech is processed on your Mac).</div></details>
+
+<details class="card"><summary><span>✂️ Clean up speech<small>Pauses, “um”s and restarted sentences</small></span></summary>
+<label>Cut pauses longer than <span class="val" id="pv">0.6 s</span></label><input type="range" id="pmin" min="0.3" max="2" step="0.1" value="0.6">
+<label>Spoken language</label><select class="langsel"><option value="en">English</option><option value="hi">Hindi</option><option value="pa">Punjabi</option><option value="auto">Other / mixed</option></select>
+<div class="row"><button data-cmd="pauses">Remove pauses</button>
+<button data-cmd="fillers">Remove um/uh</button>
+<button data-cmd="badtakes">Remove bad takes</button></div></details>
+
+<details class="card"><summary><span>✨ Motion graphics<small>Animated captions, titles and outros (HyperFrames)</small></span></summary>
+<p>Rendered as see-through video on its own track above your footage. Each one takes 15–60 seconds to make.</p>
+<label>Animated captions</label>
+<select id="acstyle"><option value="karaoke">Karaoke: spoken word lights up yellow</option><option value="pastel">Pastel: spoken word gets a pink pill</option><option value="bounce">Bounce: words pop in one by one</option></select>
+<label>Spoken language</label><select class="langsel"><option value="en">English</option><option value="hi">Hindi</option><option value="pa">Punjabi</option><option value="auto">Other / mixed</option></select>
+<div class="row"><button data-cmd="animcaptions">Add animated captions</button></div>
+<label style="margin-top:14px">Title card (start of the video)</label>
+<input id="ttitle" class="txt" placeholder="Summer Edit" maxlength="40">
+<input id="tsub" class="txt" placeholder="Small line under it (optional), e.g. new collection" maxlength="40">
+<div class="row" style="margin-top:6px"><select id="ttheme" style="flex:1"><option value="pastel">Pastel</option><option value="bold">Bold</option><option value="clean">Clean</option></select>
+<select id="tpos" style="flex:1"><option value="top">Top</option><option value="middle" selected>Middle</option><option value="bottom">Bottom</option></select></div>
+<div class="row"><button data-cmd="title">Add title</button></div>
+<label style="margin-top:14px">Outro (end of the video)</label>
+<input id="otitle" class="txt" placeholder="Follow for more" maxlength="40">
+<input id="osub" class="txt" placeholder="@yourhandle (optional)" maxlength="40">
+<div class="row"><button data-cmd="outro">Add outro</button></div></details>
+
+<details class="card"><summary><span>⚡ AutoReel<small>New beat-cut reel from your clips</small></span></summary>
+<p>Uses the clips on the current timeline. Makes a new sequence; your edit is untouched.</p>
+<label>Song</label><select class="musicsel" id="rmusic"></select>
+<label>Length <span class="val" id="rlv">30 s</span></label><input type="range" id="rlen" min="8" max="90" value="30">
+<label>Cut every</label><select id="rbps"><option value="1">1 beat (very fast)</option><option value="2" selected>2 beats (energetic)</option><option value="4">4 beats (relaxed)</option><option value="8">8 beats (slow)</option></select>
+<div class="row"><button data-cmd="reel">Make reel</button></div></details>
+
+
+<details class="card" id="histCard"><summary><span>🕘 History<small>Go back to before any effect</small></span></summary>
+<p>Every effect saves a copy of your project first. Reverting puts that copy back, so changes you made after it are undone too.</p>
+<ul id="hist"></ul></details>
+
+<div class="foot"><button data-cmd="save">Save project</button></div>
+</main>
+<script>
+const $=id=>document.getElementById(id), val=id=>$(id).value;
+[['dissolve','fv',v=>v+' frames'],['db','mv',v=>v+' dB'],['amount','zv',v=>v+' %'],['bevery','bev',v=>v+(v==1?' beat':' beats')],
+ ['bamount','bav',v=>v+' %'],['pmin','pv',v=>v+' s'],['rlen','rlv',v=>v+' s']].forEach(([i,o,f])=>$(i)&&$(i).addEventListener('input',()=>$(o).textContent=f(val(i))));
+let langv='en';
+document.querySelectorAll('.langsel').forEach(s=>s.addEventListener('change',()=>{langv=s.value;document.querySelectorAll('.langsel').forEach(t=>t.value=langv)}));
+const LABEL={smooth:'Smooth transitions + music',zoom:'Slow zoom',beatcuts:'Snapping cuts to the beat',beatzoom:'Beat zooms',beatmarkers:'Beat markers',
+ captions:'Captions',pauses:'Removing pauses',fillers:'Removing um/uh',badtakes:'Removing bad takes',reel:'Making your reel',animcaptions:'Making animated captions',title:'Making the title card',outro:'Making the outro',
+ undo:'Undoing',revert:'Reverting',save:'Saving',picksong:'Choose a song in the window that opened',launch:'Connecting FilmCraft',musicfolder:'Opening music folder'};
+const SLOW={captions:1,pauses:1,fillers:1,badtakes:1,animcaptions:1,title:1,outro:1};
+const ACTIONS={
+  launch:()=>({}), undo:()=>({}), save:()=>({}), picksong:()=>({}), musicfolder:()=>({}),
+  beatcuts:()=>({}), beatmarkers:()=>({every:4}),
+  smooth:()=>({frames:val('dissolve'),db:val('db'),mute:$('mute').checked,music:val('music')}),
+  beatzoom:()=>({every:val('bevery'),amount:val('bamount')}),
+  zoom:()=>({amount:val('amount')}),
+  captions:()=>({style:val('cstyle'),language:langv}),
+  pauses:()=>({min:val('pmin'),language:langv}),
+  fillers:()=>({language:langv}), badtakes:()=>({language:langv}),
+  reel:()=>({music:val('rmusic'),length:val('rlen'),bps:val('rbps')}),
+  animcaptions:()=>({style:val('acstyle'),language:langv}),
+  title:()=>({title:val('ttitle')||'Summer Edit',subtitle:val('tsub'),theme:val('ttheme'),position:val('tpos')}),
+  outro:()=>({title:val('otitle')||'Follow for more',subtitle:val('osub'),theme:val('ttheme')}),
+};
+// show a result: summary = last meaningful line, the rest under "Details"
+function show(kind,title,msg,actions=[]){
+  const r=$('result'); r.className=kind; $('rtitle').innerHTML=(kind=='busy'?'<span class="spin"></span>':kind=='ok'?'✓':kind=='error'?'✕':'ℹ︎')+' '+title;
+  const lines=(msg||'').split('\n').filter(l=>l.trim()&&!/^transcribe: 0 clip/.test(l));
+  $('rsummary').textContent=lines.length?lines[lines.length-1].replace(/^[a-z ]+: /,''):'';
+  $('rdetails').textContent=lines.slice(0,-1).join('\n'); $('rmore').style.display=lines.length>1?'':'none'; $('rmore').open=false;
+  const ra=$('ractions'); ra.innerHTML=''; actions.forEach(([t,fn,cls])=>{const b=document.createElement('button');b.textContent=t;if(cls)b.className=cls;b.onclick=fn;ra.appendChild(b)});
+  r.scrollIntoView({block:'nearest'});
+}
+const hide=()=>{$('result').className=''};
+let busy=false;
+async function post(cmd,body={}){
+  if(busy)return; busy=true; document.querySelectorAll('button').forEach(b=>b.disabled=true);
+  show('busy',(LABEL[cmd]||cmd)+'…', SLOW[cmd]?({title:1,outro:1,animcaptions:1}[cmd]?'Rendering the animation. This takes 15–60 seconds.':'The first run on a clip listens to all the speech, so it can take a minute.'):'');
+  const started=Date.now()-2000;
+  let res; try{res=await (await fetch('/'+cmd,{method:'POST',body:JSON.stringify(body)})).json()}
+  catch(e){ // the connection dropped: the effect may still have finished, so look it up in History
+    let h=[];try{h=await (await fetch('/history')).json()}catch(_){}
+    const done=h.find(x=>x.id>=started&&!x.reverted);
+    res=done?{kind:'ok',entry:done.id,label:done.label,msg:done.result}:{msg:'Lost contact with AutoEdit while it was working. Check History to see whether the effect was applied.',kind:'error'}}
+  busy=false; document.querySelectorAll('button').forEach(b=>b.disabled=false);
+  if(res.kind==='ok' && res.entry){
+    show('ok',(res.label||LABEL[cmd])+' applied',res.msg,[['Keep it',hide],['Revert',()=>post('revert',{id:res.entry}),'ghost']]);
+  } else show(res.kind||'info',res.kind==='error'?'Didn\u2019t work':(LABEL[cmd]||'Done'),res.msg,[['OK',hide,'ghost']]);
+  refresh(); loadHistory();
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-cmd]');if(!b)return;e.preventDefault();
+  const cmd=b.dataset.cmd; try{post(cmd,(ACTIONS[cmd]||(()=>({})))())}catch(err){show('error','Didn\u2019t work',String(err))}});
+let lastHist='';
+async function loadHistory(){let h=[];try{h=await (await fetch('/history')).json()}catch(e){}
+  $('undoBtn').disabled=busy||!h.some(e=>!e.reverted);
+  const key=JSON.stringify(h); if(key===lastHist)return; lastHist=key;   // redraw only on change, so buttons stay put
+  const ul=$('hist'); ul.innerHTML=h.length?'':'<li class="empty">No effects yet. Everything you apply shows up here.</li>';
+  h.forEach(e=>{const li=document.createElement('li'); if(e.reverted)li.className='rev';
+    li.innerHTML=`<span class="t">${e.time}</span><span class="l"></span>`; li.querySelector('.l').textContent=e.label; li.title=e.result||'';
+    if(e.reverted){const t=document.createElement('span');t.className='tag';t.textContent='reverted';li.appendChild(t)}
+    else{const b=document.createElement('button');b.className='ghost small';b.textContent='Revert';b.title='Go back to just before this';b.onclick=()=>post('revert',{id:e.id});li.appendChild(b)}
+    ul.appendChild(li)});
+  $('undoBtn').disabled=busy||!h.some(e=>!e.reverted);
+}
+let lastMusic='';
+async function refresh(){let s;try{s=await (await fetch('/status')).json()}catch(e){return}
+  $('dot').className='dot'+(s.connected?' on':'');
+  $('st').textContent=s.connected?(s.project?s.project.split('/').pop():'Connected'):'FilmCraft is not connected';
+  $('st').title=s.project||''; $('launchBtn').style.display=s.connected?'none':'';
+  const mkey=JSON.stringify(s.music); if(mkey===lastMusic)return; lastMusic=mkey;
+  document.querySelectorAll('.musicsel').forEach(sel=>{const cur=sel.value;
+   sel.innerHTML=(sel.id=='music'?'<option value="">No music</option>':'<option value="">Song already on the timeline</option>')+s.music.map(m=>`<option>${m}</option>`).join('');
+   sel.value=cur||(sel.id=='music'?(s.music[0]||''):'')})}
+refresh(); loadHistory(); setInterval(()=>{if(!busy){refresh();loadHistory()}},5000);
+</script>

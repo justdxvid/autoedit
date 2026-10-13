@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""Point-and-click front end for autoedit (stdlib only). Run it, or double-click Start AutoEdit.command."""
+import argparse, contextlib, re, shutil, urllib.parse, io, json, os, socket, subprocess, threading, time, webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import autoedit
+
+AUDIO = os.path.expanduser("~/Music/AutoEdit")      # shared music library for every project
+PORT = int(os.environ.get("FILMCRAFT_CONTROL_PORT", 9876))
+os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")  # ffmpeg under launchd
+
+def current_project():
+    try:
+        return autoedit.fc(["inspect", "project"], argparse.Namespace(project=TEST_PROJECT, bridge=f"127.0.0.1:{PORT}")).get("path") or "Unsaved project"
+    except BaseException:
+        return None
+
+TEST_PROJECT = os.environ.get("AUTOEDIT_PROJECT")   # testing: run against a project file instead of the live app
+
+def connected():
+    if TEST_PROJECT: return True
+    try:
+        socket.create_connection(("127.0.0.1", PORT), 0.5).close(); return True
+    except OSError:
+        return False
+
+def launch():
+    """Open FilmCraft with the control port; restart it if it is running without one."""
+    if connected(): return "FilmCraft is already connected."
+    running = subprocess.run(["pgrep", "-x", "FilmCraft"], capture_output=True).returncode == 0
+    if running:
+        subprocess.run(["osascript", "-e", 'tell application "FilmCraft" to quit']); time.sleep(3)
+    subprocess.Popen(["open", "-a", "FilmCraft", "--env", f"FILMCRAFT_CONTROL_PORT={PORT}"])
+    for _ in range(30):
+        time.sleep(0.5)
+        if connected(): return "FilmCraft opened and ready."
+    return "FilmCraft did not start in time."
+
+import features as F
+
+# panel action -> (function, how to turn the form fields into its arguments)
+ACTIONS = {
+    "smooth":      (autoedit.smooth,     lambda o: dict(music=o.get("music") or None, frames=int(o["frames"]), music_db=float(o["db"]), mute_original=bool(o["mute"]))),
+    "zoom":        (autoedit.zoom,       lambda o: dict(amount=float(o["amount"]))),
+    "beatcuts":    (F.beat_cuts,         lambda o: {}),
+    "beatzoom":    (F.beat_zoom,         lambda o: dict(every=int(o["every"]), amount=float(o["amount"]))),
+    "beatmarkers": (F.beat_markers,      lambda o: dict(every=int(o.get("every", 1)))),
+    "captions":    (F.captions,          lambda o: dict(style=o["style"], language=o["language"], force=False)),
+    "pauses":      (F.remove_pauses,     lambda o: dict(min=float(o["min"]), keep=0.15, language=o["language"], force=False)),
+    "fillers":     (F.remove_fillers,    lambda o: dict(language=o["language"], force=False)),
+    "badtakes":    (F.remove_bad_takes,  lambda o: dict(language=o["language"], force=False)),
+    "animcaptions":(lambda a: __import__("hf").animated_captions(a), lambda o: dict(style=o["style"], language=o["language"], force=False)),
+    "title":       (lambda a: __import__("hf").title_card(a), lambda o: dict(title=o["title"].strip() or "Summer Edit", subtitle=o.get("subtitle", "").strip(),
+                                                                         theme=o["theme"], position=o["position"], seconds=float(o.get("seconds", 3)))),
+    "outro":       (lambda a: __import__("hf").outro(a), lambda o: dict(title=o["title"].strip() or "Follow for more", subtitle=o.get("subtitle", "").strip(),
+                                                                    theme=o["theme"], position="middle", seconds=float(o.get("seconds", 3)))),
+    "reel":        (F.reel,              lambda o: dict(music=o.get("music") or None, length=float(o["length"]), beats_per_shot=int(o["bps"]), name="AutoReel")),
+}
+LABELS = {"smooth": "Smooth transitions + music", "zoom": "Slow zoom", "beatcuts": "Snap cuts to the beat",
+          "beatzoom": "Beat zooms", "beatmarkers": "Beat markers", "captions": "Captions", "pauses": "Remove pauses",
+          "fillers": "Remove um/uh", "badtakes": "Remove bad takes", "reel": "AutoReel",
+          "animcaptions": "Animated captions", "title": "Title card", "outro": "Outro"}
+HISTORY_DIR = os.environ.get("AUTOEDIT_HISTORY_DIR") or os.path.expanduser("~/Library/Application Support/AutoEdit/history")
+HISTORY = os.path.join(HISTORY_DIR, "history.json")
+hist_lock = threading.Lock()
+
+def load_history():
+    try: return json.load(open(HISTORY))
+    except Exception: return []
+
+def save_history(h):
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+    json.dump(h[-300:], open(HISTORY, "w"), indent=1)
+
+def engine():
+    return argparse.Namespace(project=TEST_PROJECT, bridge=f"127.0.0.1:{PORT}")
+
+def project_path(a):
+    return autoedit.fc(["inspect", "project"], a).get("path")
+
+UNSAVED_DIR = os.path.expanduser("~/Movies/AutoEdit Projects")
+
+def snapshot(a, cmd):
+    """Save a full copy of the project as it is right now (FilmCraft keeps working on the original)."""
+    proj = project_path(a)
+    if not proj or HISTORY_DIR in proj:
+        # never-saved project (or one left on a snapshot): give it a real home first, so a revert restores it there
+        os.makedirs(UNSAVED_DIR, exist_ok=True)
+        proj = os.path.join(UNSAVED_DIR, time.strftime("Untitled %Y-%m-%d %H.%M.%S.fcproj"))
+        autoedit.ex(a, "file.saveAs", path=proj)
+        print(f"Your project wasn't saved yet, so AutoEdit saved it as {proj}")
+    folder = os.path.join(HISTORY_DIR, re.sub(r"[^\w.-]+", "_", os.path.splitext(os.path.basename(proj))[0]))
+    os.makedirs(folder, exist_ok=True)
+    snap = os.path.join(folder, time.strftime("%Y%m%d-%H%M%S-") + cmd + ".fcproj")
+    autoedit.ex(a, "file.saveCopy", path=snap)
+    for old in sorted(os.listdir(folder))[:-60]:      # keep the 60 newest snapshots per project
+        try: os.remove(os.path.join(folder, old))
+        except OSError: pass
+    return proj, snap
+
+def restore(a, entry):
+    """Put the project back exactly as it was in the entry's snapshot."""
+    autoedit.ex(a, "file.open", path=entry["snap"])
+    if entry["project"] != "unsaved":
+        autoedit.ex(a, "file.saveAs", path=entry["project"])
+
+def run(cmd, o):
+    a = engine()
+    buf = io.StringIO()
+    entry = None
+    try:
+        with contextlib.redirect_stdout(buf):
+            if cmd == "save":
+                autoedit.ex(a, "file.save"); print("Saved.")
+                return {"msg": buf.getvalue().strip(), "kind": "info"}
+            fn, args = ACTIONS[cmd]
+            vars(a).update(args(o))
+            proj, snap = snapshot(a, cmd)
+            entry = {"id": int(time.time() * 1000), "time": time.strftime("%H:%M"), "action": cmd,
+                     "label": LABELS.get(cmd, cmd), "project": proj, "snap": snap, "reverted": False}
+            try:
+                fn(a)
+            except BaseException as e:
+                err = str(e) or type(e).__name__
+                try:
+                    restore(a, entry)
+                    print(f"\nThat didn't work, so your project was put back exactly as it was.\n({err})")
+                except BaseException as e2:
+                    print(f"\nThat didn't work ({err}), and putting the project back also failed ({e2}).")
+                return {"msg": buf.getvalue().strip(), "kind": "error"}
+    except BaseException as e:
+        return {"msg": (buf.getvalue() + f"\nError: {e}").strip(), "kind": "error"}
+    entry["result"] = buf.getvalue().strip()
+    with hist_lock:
+        h = load_history(); h.append(entry); save_history(h)
+    return {"msg": entry["result"] or "Done.", "kind": "ok", "entry": entry["id"], "label": entry["label"]}
+
+def revert(entry_id=None):
+    """Go back to just before an action (the latest one if no id). Actions after it are undone too."""
+    a = engine()
+    proj = project_path(a) or "unsaved"
+    with hist_lock:
+        h = load_history()
+        live = [e for e in h if e["project"] == proj and not e["reverted"] and os.path.exists(e["snap"])]
+        target = next((e for e in live if e["id"] == entry_id), None) if entry_id else (live[-1] if live else None)
+        if not target:
+            return {"msg": "Nothing left to undo. Only effects applied from this panel can be reverted here.", "kind": "info"}
+        try:
+            restore(a, target)
+        except BaseException as e:
+            return {"msg": f"Could not revert: {e}", "kind": "error"}
+        undone = [e for e in live if e["id"] >= target["id"]]
+        for e in undone: e["reverted"] = True
+        save_history(h)
+    names = ", ".join(e["label"] for e in undone)
+    return {"msg": f"Reverted: {names}.\nYour project is back to how it was at {target['time']}.", "kind": "info"}
+
+def history():
+    a = engine()
+    proj = project_path(a) or "unsaved"
+    return [{"id": e["id"], "time": e["time"], "label": e["label"], "reverted": e["reverted"], "result": e.get("result", "")[:300]}
+            for e in reversed(load_history()) if e["project"] == proj][:25]
+
+AUDIO_EXT = (".wav", ".mp3", ".m4a", ".aiff", ".aif", ".flac", ".ogg", ".aac")
+
+def add_songs(paths):
+    """Copy chosen songs into the shared music library; returns the names added."""
+    os.makedirs(AUDIO, exist_ok=True)
+    added = []
+    for p in paths:
+        p = p.strip()
+        if not p or not os.path.isfile(p) or not p.lower().endswith(AUDIO_EXT): continue
+        dest = os.path.join(AUDIO, os.path.basename(p))
+        if os.path.abspath(p) != os.path.abspath(dest): shutil.copy2(p, dest)
+        added.append(os.path.basename(p))
+    return added
+
+PICK_SCRIPT = [
+    "tell current application to activate",
+    'set f to choose file with prompt "Choose songs for AutoEdit" of type {"public.audio"} with multiple selections allowed',
+    'set out to ""',
+    "repeat with x in f",
+    "set out to out & POSIX path of x & linefeed",
+    "end repeat",
+    "return out",
+]
+
+def pick_songs():
+    """Native macOS file picker (works no matter which window has focus)."""
+    r = subprocess.run(["osascript"] + [x for line in PICK_SCRIPT for x in ("-e", line)], capture_output=True, text=True)
+    if r.returncode:
+        return "No song chosen." if "-128" in r.stderr or not r.stderr.strip() else f"Error: {r.stderr.strip()}"
+    added = add_songs(r.stdout.splitlines())
+    return ("Added " + ", ".join(added) + " to your music library.") if added else "Those files aren't songs AutoEdit can use."
+
+PAGE = open(os.path.join(os.path.dirname(__file__), "ui.html")).read()
+
+LOG = os.path.expanduser("~/Library/Logs/AutoEdit.log")
+
+def log(line):
+    with open(LOG, "a") as f: f.write(time.strftime("%H:%M:%S ") + line + "\n")
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def send(self, body, ctype="application/json"):
+        b = body.encode(); self.send_response(200); self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")   # the panel must always get the current page
+        self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def do_GET(self):
+        if self.path == "/history":
+            try: self.send(json.dumps(history()))
+            except BaseException: self.send("[]")
+            return
+        if self.path == "/status":
+            music = sorted(f for f in os.listdir(AUDIO) if f.lower().endswith(AUDIO_EXT)) if os.path.isdir(AUDIO) else []
+            self.send(json.dumps({"connected": connected(), "project": current_project() if connected() else "", "music": music}))
+        else:
+            log(f"page loaded by {'panel' if 'AutoEdit' in self.headers.get('User-Agent', '') else 'browser'}")
+            self.send(open(os.path.join(os.path.dirname(__file__), "ui.html")).read(), "text/html; charset=utf-8")
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0)); raw = self.rfile.read(n)
+        if self.path == "/upload":
+            os.makedirs(AUDIO, exist_ok=True)
+            name = os.path.basename(urllib.parse.unquote(self.headers.get("X-Filename", "music.wav")))
+            open(os.path.join(AUDIO, name), "wb").write(raw); self.send(json.dumps({"ok": True, "name": name})); return
+        cmd = self.path.strip("/")
+        o = json.loads(raw or b"{}")
+        log(f"click {cmd} {json.dumps(o)}")
+        res = None
+        if cmd == "launch": msg = launch()
+        elif cmd == "picksong": msg = pick_songs()
+        elif cmd in ("revert", "undo"):
+            res = revert(o.get("id")) if connected() else {"msg": "FilmCraft isn't connected.", "kind": "error"}
+        elif cmd == "musicfolder":
+            os.makedirs(AUDIO, exist_ok=True); subprocess.run(["open", AUDIO])
+            msg = "Opened your music folder. Drop songs in it and they appear in the list within a few seconds."
+        else:
+            if o.get("music"): o["music"] = os.path.join(AUDIO, o["music"])
+            res = run(cmd, o) if connected() else {"msg": "FilmCraft isn't connected. Click “Connect FilmCraft” first.", "kind": "error"}
+        if res is None: res = {"msg": msg, "kind": "error" if msg.startswith("Error") else "info"}
+        log(f"  -> {res['msg'][:300]}")
+        self.send(json.dumps(res))
+
+if __name__ == "__main__":
+    srv = ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("AUTOEDIT_PORT", 8765))), H)
+    if not os.environ.get("AUTOEDIT_NO_BROWSER"):
+        threading.Timer(0.8, lambda: webbrowser.open("http://127.0.0.1:8765")).start()
+    print("AutoEdit running at http://127.0.0.1:8765  (Ctrl+C to quit)")
+    srv.serve_forever()
