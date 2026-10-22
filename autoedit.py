@@ -120,6 +120,20 @@ def silences(a):
         spans = [l.split("silence_start:")[1].strip() for l in r.stderr.splitlines() if "silence_start" in l]
         print(f"{c['name']}: {len(spans)} silent spans >= {a.min}s")
 
+def normalize_args(args):
+    """Allow --project and --bridge to be passed either before or after subcommands."""
+    global_flags = {"--project", "--bridge"}
+    pulled, rest, i = [], [], 0
+    while i < len(args):
+        a = args[i]
+        if any(a.startswith(f + "=") for f in global_flags):
+            pulled.append(a); i += 1
+        elif a in global_flags and i + 1 < len(args):
+            pulled.extend([a, args[i+1]]); i += 2
+        else:
+            rest.append(a); i += 1
+    return pulled + rest
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--project"); p.add_argument("--bridge", default="127.0.0.1:9876")
@@ -143,7 +157,7 @@ if __name__ == "__main__":
         c = sp.add_parser(name); c.add_argument("--title", default=default); c.add_argument("--subtitle", default="")
         c.add_argument("--theme", default="pastel", choices=["pastel", "bold", "clean"])
         c.add_argument("--position", default="middle", choices=["top", "middle", "bottom"]); c.add_argument("--seconds", type=float, default=3)
-    a = p.parse_args()
+    a = p.parse_args(normalize_args(sys.argv[1:]))
     import features as F
     {"smooth": smooth, "zoom": zoom, "silences": silences, "transcribe": F.transcribe, "captions": F.captions,
      "pauses": F.remove_pauses, "fillers": F.remove_fillers, "badtakes": F.remove_bad_takes,

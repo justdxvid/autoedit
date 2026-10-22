@@ -23,6 +23,20 @@ class TestAutoEdit(unittest.TestCase):
     def test_ticks_constant(self):
         self.assertEqual(autoedit.TICKS, 254016000000)
 
+    def test_normalize_args_reordering(self):
+        # Flags after subcommand are moved before
+        argv1 = ["zoom", "--project", "/path/to/proj.fcproj", "--amount", "10"]
+        norm1 = autoedit.normalize_args(argv1)
+        self.assertEqual(norm1[:2], ["--project", "/path/to/proj.fcproj"])
+        self.assertIn("zoom", norm1)
+        self.assertIn("--amount", norm1)
+
+        # Flag with equals
+        argv2 = ["smooth", "--bridge=127.0.0.1:9876", "--frames", "15"]
+        norm2 = autoedit.normalize_args(argv2)
+        self.assertEqual(norm2[0], "--bridge=127.0.0.1:9876")
+        self.assertIn("smooth", norm2)
+
     @patch("subprocess.run")
     def test_fc_execution_json(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout='{"path": "/tmp/test.fcproj"}', stderr="")

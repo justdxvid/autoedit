@@ -168,7 +168,11 @@ elif [ "$OS" = "Linux" ]; then
 #!/bin/sh
 export AUTOEDIT_DIR="\${AUTOEDIT_DIR:-$HERE}"
 export FILMCRAFT_CONTROL_PORT="\${FILMCRAFT_CONTROL_PORT:-$PORT}"
-exec python3 "\$AUTOEDIT_DIR/app.py" "\$@"
+if [ "\$#" -gt 0 ] && [ "\$1" != "serve" ] && [ "\$1" != "panel" ]; then
+  exec python3 "\$AUTOEDIT_DIR/autoedit.py" "\$@"
+else
+  exec python3 "\$AUTOEDIT_DIR/app.py" "\$@"
+fi
 EOF
   chmod +x "$BIN_DIR/autoedit"
   ok "command launcher: ~/.local/bin/autoedit"
