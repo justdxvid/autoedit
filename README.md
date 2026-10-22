@@ -1,5 +1,7 @@
 # AutoEdit for FilmCraft
 
+[![CI](https://github.com/justdxvid/autoedit/actions/workflows/ci.yml/badge.svg)](https://github.com/justdxvid/autoedit/actions/workflows/ci.yml)
+
 One-click edits for FilmCraft: smooth transitions + music, beat sync, slow zooms, captions,
 removing pauses / "um"s / bad takes, AutoReel, and animated titles, captions and outros (HyperFrames).
 A floating panel appears next to FilmCraft whenever it's open, or in your browser on Linux.

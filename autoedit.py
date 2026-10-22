@@ -12,7 +12,7 @@
 Target: the live app (default, FilmCraft with its control port) or a project file
 headless with --project p.fcproj (saved back when done).
 """
-import argparse, json, os, shutil, subprocess, sys
+import argparse, json, os, re, shutil, subprocess, sys
 
 def find_cli():
     """Stable link first, then the newest unpacked filmcraft-cli in the usual places."""
@@ -25,7 +25,9 @@ def find_cli():
     pats = ["~/tools/filmcraft-cli-*/filmcraft-cli", "~/Downloads/filmcraft-cli-*/filmcraft-cli",
             "~/Applications/filmcraft-cli-*/filmcraft-cli", "/Applications/filmcraft-cli-*/filmcraft-cli",
             "~/Library/Application Support/AutoEdit/filmcraft-cli-*/filmcraft-cli",
-            "~/.local/share/autoedit/filmcraft-cli-*/filmcraft-cli"]
+            "~/.local/share/autoedit/filmcraft-cli-*/filmcraft-cli",
+            "~/Projects/filmcraft/target/release/filmcraft-cli",
+            "~/Projects/filmcraft/target/debug/filmcraft-cli"]
     found = sorted(p for pat in pats for p in glob.glob(os.path.expanduser(pat)))
     return found[-1] if found else "filmcraft-cli"
 
@@ -87,7 +89,8 @@ def zoom(a):
     s = seq(a)
     for i, c in enumerate(video_clips(s)):
         base = next(e for e in c["effects"] if e["effect"] == "motion")["params"]["scale"]["value"]
-        v0 = float(base[6:-1])
+        m = re.search(r"[-+]?[0-9]*\.?[0-9]+", str(base))
+        v0 = float(m.group(0)) if m else 100.0
         v1 = v0 * (1 + a.amount / 100) if i % 2 == 0 else v0
         v0 = v0 if i % 2 == 0 else v0 * (1 + a.amount / 100)   # alternate push-in / pull-out
         frame = TICKS * 1001 // 30000 if False else c["duration"] // c["durationFrames"]
@@ -98,7 +101,8 @@ def zoom(a):
 def silences(a):
     s = seq(a)
     pf = a.project or fc(["inspect", "project"], a)["path"]
-    doc = json.load(open(pf))
+    with open(pf, "r", encoding="utf-8") as f:
+        doc = json.load(f)
     paths = {}
     def walk(o):
         if isinstance(o, dict):

@@ -247,7 +247,8 @@ def pick_songs():
     open_folder(AUDIO)
     return f"Opened your music folder ({AUDIO}). Drop songs there, or upload via the web panel."
 
-PAGE = open(os.path.join(os.path.dirname(__file__), "ui.html")).read()
+with open(os.path.join(os.path.dirname(__file__), "ui.html"), encoding="utf-8") as _f:
+    PAGE = _f.read()
 
 def log(line):
     try:
@@ -272,13 +273,17 @@ class H(BaseHTTPRequestHandler):
             self.send(json.dumps({"connected": connected(), "project": current_project() if connected() else "", "music": music}))
         else:
             log(f"page loaded by {'panel' if 'AutoEdit' in self.headers.get('User-Agent', '') else 'browser'}")
-            self.send(open(os.path.join(os.path.dirname(__file__), "ui.html")).read(), "text/html; charset=utf-8")
+            with open(os.path.join(os.path.dirname(__file__), "ui.html"), encoding="utf-8") as f:
+                self.send(f.read(), "text/html; charset=utf-8")
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0)); raw = self.rfile.read(n)
         if self.path == "/upload":
             os.makedirs(AUDIO, exist_ok=True)
             name = os.path.basename(urllib.parse.unquote(self.headers.get("X-Filename", "music.wav")))
-            open(os.path.join(AUDIO, name), "wb").write(raw); self.send(json.dumps({"ok": True, "name": name})); return
+            with open(os.path.join(AUDIO, name), "wb") as f:
+                f.write(raw)
+            self.send(json.dumps({"ok": True, "name": name}))
+            return
         cmd = self.path.strip("/")
         o = json.loads(raw or b"{}")
         log(f"click {cmd} {json.dumps(o)}")

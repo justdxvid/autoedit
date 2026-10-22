@@ -79,7 +79,8 @@ def whisper_words(wav, offset, model, lang):
         out = os.path.join(td, "w")
         sh([find_whisper(), "-m", model, "-f", wav, "-l", lang, "-ojf", "-of", out, "-np"])
         if not os.path.exists(out + ".json"): return []
-        d = json.load(open(out + ".json"))
+        with open(out + ".json", "r", encoding="utf-8") as f:
+            d = json.load(f)
     words = []
     for seg in d.get("transcription", []):
         for t in seg["tokens"]:

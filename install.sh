@@ -108,7 +108,10 @@ if [ -n "$CLI" ]; then
     cp -R "$(dirname "$CLI")" "$SUPPORT/"
     CLI="$SUPPORT/$(basename "$(dirname "$CLI")")/filmcraft-cli";; esac
   [ "$OS" = "Darwin" ] && (xattr -dr com.apple.quarantine "$(dirname "$CLI")" 2>/dev/null || true)
-  mkdir -p "$HOME/.local/bin"; ln -sf "$CLI" "$HOME/.local/bin/filmcraft-cli"
+  mkdir -p "$HOME/.local/bin"
+  if [ "$CLI" != "$HOME/.local/bin/filmcraft-cli" ]; then
+    ln -sf "$CLI" "$HOME/.local/bin/filmcraft-cli"
+  fi
   ok "filmcraft-cli ($("$CLI" --version 2>/dev/null | head -1))"
 else
   stop "filmcraft-cli not found. Download filmcraft-cli from FilmCraft's releases or build it with cargo build -p filmcraft-cli, then re-run."
