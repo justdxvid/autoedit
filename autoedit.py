@@ -18,18 +18,22 @@ def find_cli():
     """Stable link first, then the newest unpacked filmcraft-cli in the usual places."""
     import glob
     if os.environ.get("FILMCRAFT_CLI"): return os.environ["FILMCRAFT_CLI"]
-    which = shutil.which("filmcraft-cli")
+    which = shutil.which("filmcraft-cli") or shutil.which("filmcraft-cli.exe")
     if which: return which
     link = os.path.expanduser("~/.local/bin/filmcraft-cli")
     if os.path.exists(link): return link
-    pats = ["~/tools/filmcraft-cli-*/filmcraft-cli", "~/Downloads/filmcraft-cli-*/filmcraft-cli",
-            "~/Applications/filmcraft-cli-*/filmcraft-cli", "/Applications/filmcraft-cli-*/filmcraft-cli",
-            "~/Library/Application Support/AutoEdit/filmcraft-cli-*/filmcraft-cli",
-            "~/.local/share/autoedit/filmcraft-cli-*/filmcraft-cli",
-            "~/Projects/filmcraft/target/release/filmcraft-cli",
-            "~/Projects/filmcraft/target/debug/filmcraft-cli"]
+    if os.path.exists(link + ".exe"): return link + ".exe"
+    pats = ["~/tools/filmcraft-cli-*/filmcraft-cli*", "~/Downloads/filmcraft-cli-*/filmcraft-cli*",
+            "~/Applications/filmcraft-cli-*/filmcraft-cli*", "/Applications/filmcraft-cli-*/filmcraft-cli*",
+            "~/Library/Application Support/AutoEdit/filmcraft-cli-*/filmcraft-cli*",
+            "~/.local/share/autoedit/filmcraft-cli-*/filmcraft-cli*",
+            "~/AppData/Local/AutoEdit/filmcraft-cli-*/filmcraft-cli*",
+            "~/AppData/Local/FilmCraft/filmcraft-cli*",
+            "~/Projects/filmcraft/target/release/filmcraft-cli*",
+            "~/Projects/filmcraft/target/debug/filmcraft-cli*"]
     found = sorted(p for pat in pats for p in glob.glob(os.path.expanduser(pat)))
-    return found[-1] if found else "filmcraft-cli"
+    default_exe = "filmcraft-cli.exe" if sys.platform == "win32" else "filmcraft-cli"
+    return found[-1] if found else default_exe
 
 CLI = find_cli()
 TICKS = 254016000000

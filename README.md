@@ -8,7 +8,7 @@ A floating panel appears next to FilmCraft whenever it's open, or in your browse
 
 Built on [FilmCraft](https://github.com/storytold/filmcraft)'s control API, with speech-to-text by
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and motion graphics by [HyperFrames](https://github.com/heygen-com/hyperframes).
-Runs entirely on your local machine (macOS & Linux).
+Runs entirely on your local machine (Windows, macOS & Linux).
 
 | Panel section | What it does |
 |---|---|
@@ -22,6 +22,16 @@ Runs entirely on your local machine (macOS & Linux).
 | 🕘 History | Every effect is snapshotted first: revert any step |
 
 ## Install
+
+### Windows
+1. **Install dependencies**:
+   - Python 3 (from [python.org](https://python.org) or `winget install Python.Python.3.12`)
+   - `ffmpeg` (e.g. `winget install Gyan.FFmpeg` or `choco install ffmpeg` / `scoop install ffmpeg`)
+   - `node` & `npm` (e.g. `winget install OpenJS.NodeJS`)
+   - `whisper.cpp` (`whisper-cli.exe` or `whisper.exe`, from [whisper.cpp releases](https://github.com/ggml-org/whisper.cpp/releases))
+2. Ensure `filmcraft-cli.exe` or `filmcraft.exe` is in your `PATH` or in `%LOCALAPPDATA%\FilmCraft`.
+3. Double-click **`Install AutoEdit.bat`** (or run `powershell -ExecutionPolicy Bypass -File install.ps1`).
+4. Double-click **`Start AutoEdit.bat`** (or run `autoedit` in Terminal / PowerShell) to open the web panel at `http://127.0.0.1:8765`.
 
 ### macOS
 1. **Install FilmCraft** and open it once.
@@ -48,18 +58,18 @@ Put songs you're allowed to use in **~/Music/AutoEdit** (or click *Add song…* 
 ## Good to know
 
 - Every effect can be undone from the panel's **History** (or **↶ Undo last effect**).
-- Captions and speech clean-up run locally on your machine; speech models (~150 MB, ~470 MB for Hindi/Punjabi) download the first time you use them into standard app data paths (`~/.local/share/autoedit/models` on Linux, `~/Library/Application Support/AutoEdit/models` on macOS).
+- Captions and speech clean-up run locally on your machine; speech models (~150 MB, ~470 MB for Hindi/Punjabi) download the first time you use them into standard app data paths (`%LOCALAPPDATA%\AutoEdit\models` on Windows, `~/.local/share/autoedit/models` on Linux, `~/Library/Application Support/AutoEdit/models` on macOS).
 - Motion graphics render with HyperFrames and transparent WebM (VP9 alpha).
-- Something stopped working (e.g. after updating FilmCraft)? Just run `./install.sh` again.
+- Something stopped working (e.g. after updating FilmCraft)? Just run the installer again.
 
 ## Command-Line Usage
 
 The engine also works directly from the command line:
 
 ```bash
-python3 autoedit.py --help
-python3 autoedit.py --project myproject.fcproj zoom --amount 8
-python3 autoedit.py --project myproject.fcproj smooth --frames 15
+autoedit --help
+autoedit --project myproject.fcproj zoom --amount 8
+autoedit --project myproject.fcproj smooth --frames 15
 ```
 
 ## Running Tests
@@ -72,7 +82,10 @@ python3 -m unittest discover -s tests -p "test_*.py"
 
 ## Uninstall
 
-Run `./uninstall.sh` (or double-click **`Uninstall AutoEdit.command`** on macOS). Your projects, videos and songs are kept.
+- **Windows**: Double-click **`Uninstall AutoEdit.bat`** (or run `powershell -ExecutionPolicy Bypass -File uninstall.ps1`).
+- **macOS**: Double-click **`Uninstall AutoEdit.command`** or run `./uninstall.sh`.
+- **Linux**: Run `./uninstall.sh`.
+Your projects, videos and songs are kept.
 
 ## License
 

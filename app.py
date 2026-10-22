@@ -6,7 +6,33 @@ import autoedit
 
 AUDIO = os.path.expanduser("~/Music/AutoEdit")      # shared music library for every project
 PORT = int(os.environ.get("FILMCRAFT_CONTROL_PORT", 9876))
-os.environ["PATH"] = os.path.expanduser("~/.local/bin:") + "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")  # ffmpeg/filmcraft-cli
+
+def _setup_path():
+    extra = []
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "")
+        appdata = os.environ.get("APPDATA", "")
+        userprofile = os.environ.get("USERPROFILE", os.path.expanduser("~"))
+        for d in [
+            os.path.join(local, "AutoEdit", "bin"),
+            os.path.join(local, "Microsoft", "WinGet", "Links"),
+            os.path.join(local, "FilmCraft"),
+            os.path.join(appdata, "npm"),
+            os.path.join(userprofile, "scoop", "shims"),
+            r"C:\ProgramData\chocolatey\bin",
+            r"C:\Program Files\ffmpeg\bin",
+        ]:
+            if d and os.path.exists(d): extra.append(d)
+    elif sys.platform == "darwin":
+        extra = [os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+    else:
+        extra = [os.path.expanduser("~/.local/bin"), "/usr/local/bin", "/usr/bin"]
+    cur = os.environ.get("PATH", "")
+    to_add = [d for d in extra if d not in cur]
+    if to_add:
+        os.environ["PATH"] = os.pathsep.join(to_add) + os.pathsep + cur
+
+_setup_path()
 
 def current_project():
     try:
@@ -23,25 +49,53 @@ def connected():
     except OSError:
         return False
 
+def is_filmcraft_running():
+    if sys.platform == "win32":
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq filmcraft.exe"], capture_output=True, text=True)
+        return "filmcraft.exe" in r.stdout.lower()
+    return subprocess.run(["pgrep", "-xi", "filmcraft"], capture_output=True).returncode == 0
+
+def kill_filmcraft():
+    if sys.platform == "darwin":
+        subprocess.run(["osascript", "-e", 'tell application "FilmCraft" to quit']); time.sleep(3)
+    elif sys.platform == "win32":
+        subprocess.run(["taskkill", "/F", "/IM", "filmcraft.exe"], capture_output=True); time.sleep(1)
+    else:
+        subprocess.run(["pkill", "-xi", "filmcraft"]); time.sleep(1)
+
+def find_filmcraft_app():
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "")
+        prog = os.environ.get("ProgramFiles", r"C:\Program Files")
+        prog86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        candidates = [
+            shutil.which("filmcraft.exe"),
+            shutil.which("filmcraft"),
+            os.path.join(local, "FilmCraft", "filmcraft.exe"),
+            os.path.join(prog, "FilmCraft", "filmcraft.exe"),
+            os.path.join(prog86, "FilmCraft", "filmcraft.exe"),
+            os.path.expanduser("~/Projects/filmcraft/target/release/filmcraft.exe"),
+            os.path.expanduser("~/Projects/filmcraft/target/debug/filmcraft.exe"),
+        ]
+        return next((c for c in candidates if c and os.path.exists(c)), None) or "filmcraft.exe"
+    return shutil.which("filmcraft") or os.path.expanduser("~/.local/bin/filmcraft")
+
 def launch():
     """Open FilmCraft with the control port; restart it if it is running without one."""
     if connected(): return "FilmCraft is already connected."
-    running = subprocess.run(["pgrep", "-xi", "filmcraft"], capture_output=True).returncode == 0
-    if running:
-        if sys.platform == "darwin":
-            subprocess.run(["osascript", "-e", 'tell application "FilmCraft" to quit']); time.sleep(3)
-        else:
-            subprocess.run(["pkill", "-xi", "filmcraft"]); time.sleep(1)
+    if is_filmcraft_running():
+        kill_filmcraft()
     if sys.platform == "darwin":
         subprocess.Popen(["open", "-a", "FilmCraft", "--env", f"FILMCRAFT_CONTROL_PORT={PORT}"])
     else:
-        fc_bin = shutil.which("filmcraft") or os.path.expanduser("~/.local/bin/filmcraft")
+        fc_bin = find_filmcraft_app()
         env = os.environ.copy()
         env["FILMCRAFT_CONTROL_PORT"] = str(PORT)
-        if shutil.which("filmcraft") or os.path.exists(fc_bin):
+        if fc_bin and (shutil.which(fc_bin) or os.path.exists(fc_bin)):
             subprocess.Popen([fc_bin], env=env)
         else:
-            return "FilmCraft not found in PATH or ~/.local/bin. Launch FilmCraft with FILMCRAFT_CONTROL_PORT=9876."
+            hint = "in PATH, %LOCALAPPDATA%\\FilmCraft, or Program Files" if sys.platform == "win32" else "in PATH or ~/.local/bin"
+            return f"FilmCraft not found {hint}. Launch FilmCraft with FILMCRAFT_CONTROL_PORT=9876."
     for _ in range(30):
         time.sleep(0.5)
         if connected(): return "FilmCraft opened and ready."
@@ -76,6 +130,13 @@ if sys.platform == "darwin":
     DATA_DIR = os.path.expanduser("~/Library/Application Support/AutoEdit")
     LOG_DIR = os.path.expanduser("~/Library/Logs")
     UNSAVED_DIR = os.path.expanduser("~/Movies/AutoEdit Projects")
+elif sys.platform == "win32":
+    app_data = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
+    local_app_data = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local")
+    DATA_DIR = os.path.join(app_data, "AutoEdit")
+    LOG_DIR = os.path.join(local_app_data, "AutoEdit", "Logs")
+    videos_dir = os.path.expanduser("~/Videos")
+    UNSAVED_DIR = os.path.join(videos_dir, "AutoEdit Projects")
 else:
     xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     DATA_DIR = os.path.join(xdg_data, "autoedit")
@@ -93,13 +154,13 @@ hist_lock = threading.Lock()
 
 def load_history():
     try:
-        with open(HISTORY) as f:
+        with open(HISTORY, encoding="utf-8") as f:
             return json.load(f)
     except Exception: return []
 
 def save_history(h):
     os.makedirs(HISTORY_DIR, exist_ok=True)
-    with open(HISTORY, "w") as f:
+    with open(HISTORY, "w", encoding="utf-8") as f:
         json.dump(h[-300:], f, indent=1)
 
 def engine():
@@ -112,6 +173,11 @@ def open_folder(path):
     os.makedirs(path, exist_ok=True)
     if sys.platform == "darwin":
         subprocess.run(["open", path])
+    elif sys.platform == "win32":
+        try:
+            os.startfile(path)
+        except (AttributeError, OSError):
+            subprocess.run(["explorer", os.path.normpath(path)])
     else:
         subprocess.run(["xdg-open", path])
 
@@ -221,13 +287,27 @@ PICK_SCRIPT = [
 ]
 
 def pick_songs():
-    """Native file picker (falls back to zenity/kdialog on Linux, or opening music folder)."""
+    """Native file picker (PowerShell on Windows, osascript on macOS, zenity/kdialog on Linux)."""
     if sys.platform == "darwin":
         r = subprocess.run(["osascript"] + [x for line in PICK_SCRIPT for x in ("-e", line)], capture_output=True, text=True)
         if r.returncode:
             return "No song chosen." if "-128" in r.stderr or not r.stderr.strip() else f"Error: {r.stderr.strip()}"
         added = add_songs(r.stdout.splitlines())
         return ("Added " + ", ".join(added) + " to your music library.") if added else "Those files aren't songs AutoEdit can use."
+    if sys.platform == "win32":
+        ps_cmd = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+            "$f.Multiselect = $true; "
+            "$f.Filter = 'Audio files (*.wav;*.mp3;*.m4a;*.flac;*.ogg;*.aac)|*.wav;*.mp3;*.m4a;*.flac;*.ogg;*.aac|All files (*.*)|*.*'; "
+            "$f.Title = 'Choose songs for AutoEdit'; "
+            "if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $f.FileNames }"
+        )
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            added = add_songs(r.stdout.strip().splitlines())
+            return ("Added " + ", ".join(added) + " to your music library.") if added else "Those files aren't songs AutoEdit can use."
+        return "No song chosen."
     if shutil.which("zenity"):
         r = subprocess.run(["zenity", "--file-selection", "--multiple", "--separator=\n",
                             '--file-filter=Audio files | *.wav *.mp3 *.m4a *.aiff *.aif *.flac *.ogg *.aac',
@@ -253,7 +333,7 @@ with open(os.path.join(os.path.dirname(__file__), "ui.html"), encoding="utf-8") 
 def log(line):
     try:
         os.makedirs(os.path.dirname(LOG), exist_ok=True)
-        with open(LOG, "a") as f: f.write(time.strftime("%H:%M:%S ") + line + "\n")
+        with open(LOG, "a", encoding="utf-8") as f: f.write(time.strftime("%H:%M:%S ") + line + "\n")
     except OSError:
         pass
 

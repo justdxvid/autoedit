@@ -8,17 +8,57 @@ import html, json, os, re, shutil, subprocess, sys, tempfile, time
 from autoedit import ex, fc, seq, TICKS, STEPS
 import features as F
 
+def _setup_path():
+    extra = []
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "")
+        appdata = os.environ.get("APPDATA", "")
+        userprofile = os.environ.get("USERPROFILE", os.path.expanduser("~"))
+        for d in [
+            os.path.join(local, "AutoEdit", "bin"),
+            os.path.join(local, "Microsoft", "WinGet", "Links"),
+            os.path.join(local, "FilmCraft"),
+            os.path.join(appdata, "npm"),
+            os.path.join(userprofile, "scoop", "shims"),
+            r"C:\ProgramData\chocolatey\bin",
+            r"C:\Program Files\ffmpeg\bin",
+        ]:
+            if d and os.path.exists(d): extra.append(d)
+    elif sys.platform == "darwin":
+        extra = [os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+    else:
+        extra = [os.path.expanduser("~/.local/bin"), "/usr/local/bin", "/usr/bin"]
+    cur = os.environ.get("PATH", "")
+    to_add = [d for d in extra if d not in cur]
+    if to_add:
+        os.environ["PATH"] = os.pathsep.join(to_add) + os.pathsep + cur
+
+_setup_path()
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-HF = os.path.join(HERE, "hyperframes", "node_modules", ".bin", "hyperframes")
 GSAP = os.path.join(HERE, "hyperframes", "node_modules", "gsap", "dist", "gsap.min.js")
+
+def find_hyperframes():
+    bin_name = "hyperframes.cmd" if sys.platform == "win32" else "hyperframes"
+    hf_path = os.path.join(HERE, "hyperframes", "node_modules", ".bin", bin_name)
+    if os.path.exists(hf_path): return hf_path
+    fallback = os.path.join(HERE, "hyperframes", "node_modules", ".bin", "hyperframes")
+    if os.path.exists(fallback): return fallback
+    which = shutil.which(bin_name) or shutil.which("hyperframes")
+    return which or hf_path
+
+HF = find_hyperframes()
+
 if sys.platform == "darwin":
     OUT = os.path.expanduser("~/Movies/AutoEdit Overlays")
+elif sys.platform == "win32":
+    videos_dir = os.path.expanduser("~/Videos")
+    OUT = os.path.join(videos_dir, "AutoEdit Overlays")
 else:
     videos_dir = os.path.expanduser("~/Videos")
     movies_dir = os.path.expanduser("~/Movies")
     base_dir = movies_dir if os.path.exists(movies_dir) and not os.path.exists(videos_dir) else videos_dir
     OUT = os.path.join(base_dir, "AutoEdit Overlays")
-os.environ["PATH"] = os.path.expanduser("~/.local/bin:") + "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
 # Colour themes shared by every overlay.
 THEMES = {
@@ -50,16 +90,18 @@ window.__timelines["main"] = tl;
 </script></body></html>"""
 
 def render(name, doc, fps):
-    """Render a composition to a transparent WebM in ~/Movies/AutoEdit Overlays and return its path."""
-    if not os.path.exists(HF):
+    """Render a composition to a transparent WebM in AutoEdit Overlays and return its path."""
+    hf_bin = find_hyperframes()
+    if not os.path.exists(hf_bin) and not shutil.which(hf_bin):
         raise SystemExit("HyperFrames isn't installed. Run the AutoEdit installer again (it sets up motion graphics).")
     os.makedirs(OUT, exist_ok=True)
     out = os.path.join(OUT, f"{name}-{time.strftime('%Y%m%d-%H%M%S')}.webm")
     with tempfile.TemporaryDirectory() as td:
-        open(os.path.join(td, "index.html"), "w").write(doc)
+        with open(os.path.join(td, "index.html"), "w", encoding="utf-8") as f:
+            f.write(doc)
         shutil.copy(GSAP, td)
-        r = subprocess.run([HF, "render", ".", "--format", "webm", "--fps", str(fps), "-o", out, "--quiet"],
-                           cwd=td, capture_output=True, text=True)
+        r = subprocess.run([hf_bin, "render", ".", "--format", "webm", "--fps", str(fps), "-o", out, "--quiet"],
+                           cwd=td, capture_output=True, text=True, shell=(sys.platform == "win32"))
     if r.returncode or not os.path.exists(out):
         raise SystemExit("HyperFrames render failed: " + (r.stderr or r.stdout).strip()[-600:])
     return out

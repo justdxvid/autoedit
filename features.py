@@ -10,9 +10,38 @@ from autoedit import ex, fc, seq, TICKS, STEPS
 
 def autoedit_steps(n): STEPS[0] += n
 
-os.environ["PATH"] = os.path.expanduser("~/.local/bin:") + "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
+def _setup_path():
+    extra = []
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA", "")
+        appdata = os.environ.get("APPDATA", "")
+        userprofile = os.environ.get("USERPROFILE", os.path.expanduser("~"))
+        for d in [
+            os.path.join(local, "AutoEdit", "bin"),
+            os.path.join(local, "Microsoft", "WinGet", "Links"),
+            os.path.join(local, "FilmCraft"),
+            os.path.join(appdata, "npm"),
+            os.path.join(userprofile, "scoop", "shims"),
+            r"C:\ProgramData\chocolatey\bin",
+            r"C:\Program Files\ffmpeg\bin",
+        ]:
+            if d and os.path.exists(d): extra.append(d)
+    elif sys.platform == "darwin":
+        extra = [os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+    else:
+        extra = [os.path.expanduser("~/.local/bin"), "/usr/local/bin", "/usr/bin"]
+    cur = os.environ.get("PATH", "")
+    to_add = [d for d in extra if d not in cur]
+    if to_add:
+        os.environ["PATH"] = os.pathsep.join(to_add) + os.pathsep + cur
+
+_setup_path()
+
 if sys.platform == "darwin":
     MODELS = os.path.expanduser("~/Library/Application Support/AutoEdit/models")
+elif sys.platform == "win32":
+    local_app_data = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Local")
+    MODELS = os.path.join(local_app_data, "AutoEdit", "models")
 else:
     xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     MODELS = os.path.join(xdg_data, "autoedit", "models")
@@ -23,14 +52,22 @@ MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.b
 
 def find_whisper():
     if os.environ.get("WHISPER_CLI"): return os.environ["WHISPER_CLI"]
-    for name in ["whisper-cli", "whisper-cpp", "whisper", "main"]:
+    names = ["whisper-cli", "whisper-cli.exe", "whisper-cpp", "whisper-cpp.exe", "whisper", "whisper.exe", "main", "main.exe"]
+    for name in names:
         p = shutil.which(name)
         if p: return p
-    for p in [os.path.expanduser("~/.local/bin/whisper-cli"), os.path.expanduser("~/.local/bin/main"),
-              os.path.expanduser("~/Library/Application Support/AutoEdit/whisper-cli"),
-              os.path.expanduser("~/.local/share/autoedit/whisper-cli")]:
+    candidates = [
+        os.path.expanduser("~/.local/bin/whisper-cli"),
+        os.path.expanduser("~/.local/bin/main"),
+        os.path.expanduser("~/Library/Application Support/AutoEdit/whisper-cli"),
+        os.path.expanduser("~/.local/share/autoedit/whisper-cli"),
+        os.path.expanduser("~/AppData/Local/AutoEdit/whisper-cli.exe"),
+        os.path.expanduser("~/AppData/Local/AutoEdit/main.exe"),
+    ]
+    for p in candidates:
         if os.path.exists(p): return p
-    return "whisper-cli"
+        if os.path.exists(p + ".exe"): return p + ".exe"
+    return "whisper-cli.exe" if sys.platform == "win32" else "whisper-cli"
 
 def sh(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
