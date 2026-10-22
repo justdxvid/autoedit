@@ -1,0 +1,258 @@
+{
+  "id": "autoedit",
+  "name": "AutoEdit",
+  "version": "1.0.0",
+  "description": "One-click AI captions, silence removal, beat-synced cuts, and animated graphics for FilmCraft.",
+  "author": "AutoEdit",
+  "actions": [
+    {
+      "id": "smooth",
+      "label": "Smooth transitions + music",
+      "category": "Finish",
+      "description": "Cross-dissolve every cut and optionally lay a music track underneath.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "smooth"],
+      "params": [
+        { "id": "frames", "label": "Dissolve frames", "type": "int", "default": 15, "min": 2, "max": 60 },
+        { "id": "music", "label": "Music file", "type": "file", "default": "", "extensions": ["mp3", "wav", "m4a", "flac", "aac", "ogg"] },
+        { "id": "db", "label": "Music gain (dB)", "type": "float", "default": -14.0, "min": -40.0, "max": 0.0 },
+        { "id": "mute", "label": "Mute original clip audio", "type": "bool", "default": false }
+      ]
+    },
+    {
+      "id": "zoom",
+      "label": "Slow zoom",
+      "category": "Finish",
+      "description": "Animate subtle push-in / pull-out motion across every clip on the timeline.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "zoom"],
+      "params": [
+        { "id": "amount", "label": "Zoom (%)", "type": "float", "default": 8.0, "min": 1.0, "max": 30.0 }
+      ]
+    },
+    {
+      "id": "beatcuts",
+      "label": "Snap cuts to the beat",
+      "category": "Beat",
+      "description": "Align timeline edit points to the nearest detected musical beat.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "beatcuts"],
+      "params": []
+    },
+    {
+      "id": "beatzoom",
+      "label": "Beat zooms",
+      "category": "Beat",
+      "description": "Pulse scale keyframes on every Nth beat of the music track.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "beatzoom"],
+      "params": [
+        { "id": "every", "label": "Every N beats", "type": "int", "default": 4, "min": 1, "max": 16 },
+        { "id": "amount", "label": "Pulse (%)", "type": "float", "default": 7.0, "min": 1.0, "max": 25.0 }
+      ]
+    },
+    {
+      "id": "beatmarkers",
+      "label": "Beat markers",
+      "category": "Beat",
+      "description": "Drop sequence markers on detected musical beats.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "beatmarkers"],
+      "params": [
+        { "id": "every", "label": "Every N beats", "type": "int", "default": 1, "min": 1, "max": 16 }
+      ]
+    },
+    {
+      "id": "captions",
+      "label": "Captions (Whisper AI)",
+      "category": "Speech",
+      "description": "Transcribe timeline dialogue and build styled word-synced captions.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "captions"],
+      "params": [
+        {
+          "id": "style",
+          "label": "Style",
+          "type": "choice",
+          "default": "pop",
+          "choices": [
+            { "value": "pop", "label": "Pop" },
+            { "value": "pastel", "label": "Pastel" },
+            { "value": "clean", "label": "Clean" }
+          ]
+        },
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "choice",
+          "default": "auto",
+          "choices": [
+            { "value": "auto", "label": "Auto-detect" },
+            { "value": "en", "label": "English" },
+            { "value": "es", "label": "Spanish" },
+            { "value": "fr", "label": "French" },
+            { "value": "de", "label": "German" },
+            { "value": "pt", "label": "Portuguese" },
+            { "value": "it", "label": "Italian" },
+            { "value": "ja", "label": "Japanese" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "animcaptions",
+      "label": "Animated captions (HyperFrames)",
+      "category": "Speech",
+      "description": "Render GSAP-animated word-by-word caption overlays onto the timeline.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "animcaptions"],
+      "params": [
+        {
+          "id": "style",
+          "label": "Style",
+          "type": "choice",
+          "default": "pop",
+          "choices": [
+            { "value": "pop", "label": "Pop" },
+            { "value": "pastel", "label": "Pastel" },
+            { "value": "clean", "label": "Clean" }
+          ]
+        },
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "choice",
+          "default": "auto",
+          "choices": [
+            { "value": "auto", "label": "Auto-detect" },
+            { "value": "en", "label": "English" },
+            { "value": "es", "label": "Spanish" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pauses",
+      "label": "Remove pauses",
+      "category": "Speech",
+      "description": "Ripple-delete dead air and long silences between spoken phrases.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "pauses"],
+      "params": [
+        { "id": "min", "label": "Min pause (s)", "type": "float", "default": 0.6, "min": 0.2, "max": 5.0 },
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "choice",
+          "default": "auto",
+          "choices": [
+            { "value": "auto", "label": "Auto-detect" },
+            { "value": "en", "label": "English" },
+            { "value": "es", "label": "Spanish" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fillers",
+      "label": "Remove um/uh fillers",
+      "category": "Speech",
+      "description": "Detect and ripple-cut filler words (um, uh, er, ah).",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "fillers"],
+      "params": [
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "choice",
+          "default": "auto",
+          "choices": [
+            { "value": "auto", "label": "Auto-detect" },
+            { "value": "en", "label": "English" },
+            { "value": "es", "label": "Spanish" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "badtakes",
+      "label": "Remove bad takes",
+      "category": "Speech",
+      "description": "Detect repeated sentences and keep only the final clean take.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "badtakes"],
+      "params": [
+        {
+          "id": "language",
+          "label": "Language",
+          "type": "choice",
+          "default": "auto",
+          "choices": [
+            { "value": "auto", "label": "Auto-detect" },
+            { "value": "en", "label": "English" },
+            { "value": "es", "label": "Spanish" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "title",
+      "label": "Title card",
+      "category": "Graphics",
+      "description": "Render an animated title card overlay and place it on the timeline.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "title"],
+      "params": [
+        { "id": "title", "label": "Title", "type": "text", "default": "Summer Edit" },
+        { "id": "subtitle", "label": "Subtitle", "type": "text", "default": "" },
+        {
+          "id": "theme",
+          "label": "Theme",
+          "type": "choice",
+          "default": "editorial",
+          "choices": [
+            { "value": "editorial", "label": "Editorial" },
+            { "value": "bold", "label": "Bold" },
+            { "value": "minimal", "label": "Minimal" }
+          ]
+        },
+        {
+          "id": "position",
+          "label": "Position",
+          "type": "choice",
+          "default": "middle",
+          "choices": [
+            { "value": "top", "label": "Top" },
+            { "value": "middle", "label": "Center" },
+            { "value": "bottom", "label": "Bottom" }
+          ]
+        },
+        { "id": "seconds", "label": "Duration (s)", "type": "float", "default": 3.0, "min": 1.0, "max": 10.0 }
+      ]
+    },
+    {
+      "id": "outro",
+      "label": "Outro card",
+      "category": "Graphics",
+      "description": "Append an animated end-screen outro card at the end of the sequence.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "outro"],
+      "params": [
+        { "id": "title", "label": "Title", "type": "text", "default": "Follow for more" },
+        { "id": "subtitle", "label": "Subtitle", "type": "text", "default": "" },
+        {
+          "id": "theme",
+          "label": "Theme",
+          "type": "choice",
+          "default": "editorial",
+          "choices": [
+            { "value": "editorial", "label": "Editorial" },
+            { "value": "bold", "label": "Bold" },
+            { "value": "minimal", "label": "Minimal" }
+          ]
+        },
+        { "id": "seconds", "label": "Duration (s)", "type": "float", "default": 3.0, "min": 1.0, "max": 10.0 }
+      ]
+    },
+    {
+      "id": "reel",
+      "label": "AutoReel",
+      "category": "Build",
+      "description": "Build a beat-synced highlight reel sequence from all media in the project.",
+      "command": ["python3", "{plugin_dir}/plugin_runner.py", "reel"],
+      "params": [
+        { "id": "music", "label": "Music file", "type": "file", "default": "", "extensions": ["mp3", "wav", "m4a", "flac", "aac", "ogg"] },
+        { "id": "length", "label": "Target length (s)", "type": "float", "default": 30.0, "min": 5.0, "max": 180.0 },
+        { "id": "bps", "label": "Beats per shot", "type": "int", "default": 2, "min": 1, "max": 8 }
+      ]
+    }
+  ]
+}

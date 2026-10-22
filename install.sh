@@ -123,8 +123,11 @@ mkdir -p "$HERE/hyperframes"
   npm install --silent hyperframes@0.8.151 gsap@3.14.2 >/dev/null 2>&1 ) \
   && ok "HyperFrames renderer" || warn "HyperFrames install failed (motion graphics won't work; everything else will)"
 
-# 4. Shared music library
+# 4. Shared music library and native FilmCraft plugin
 mkdir -p "$HOME/Music/AutoEdit"; ok "music folder: ~/Music/AutoEdit"
+if PLUGIN_DEST=$(python3 "$HERE/plugin_runner.py" install 2>/dev/null); then
+  ok "FilmCraft native plugin: Window ▸ Extensions ▸ AutoEdit"
+fi
 
 # 5. Build/Install companion panel and launcher
 if [ "$OS" = "Darwin" ]; then

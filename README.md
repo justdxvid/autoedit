@@ -4,11 +4,20 @@
 
 One-click edits for FilmCraft: smooth transitions + music, beat sync, slow zooms, captions,
 removing pauses / "um"s / bad takes, AutoReel, and animated titles, captions and outros (HyperFrames).
-A floating panel appears next to FilmCraft whenever it's open, or in your browser on Linux.
+Works both as a **native dockable Extension panel inside FilmCraft** (**Window ▸ Extensions ▸ AutoEdit**) and as a standalone companion panel (macOS menu bar / web UI).
 
 Built on [FilmCraft](https://github.com/storytold/filmcraft)'s control API, with speech-to-text by
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and motion graphics by [HyperFrames](https://github.com/heygen-com/hyperframes).
 Runs entirely on your local machine (Windows, macOS & Linux).
+
+## Native FilmCraft Extension
+
+Running `./install.sh`, `install.ps1`, or `python3 autoedit.py install-plugin` automatically registers AutoEdit in FilmCraft's extensions folder:
+- **Linux**: `~/.local/share/filmcraft/plugins/autoedit/plugin.json`
+- **Windows**: `%APPDATA%\FilmCraft\plugins\autoedit\plugin.json`
+- **macOS**: `~/Library/Application Support/FilmCraft/plugins/autoedit/plugin.json`
+
+Once installed, open FilmCraft and go to **Window ▸ Extensions ▸ AutoEdit** (or **Edit ▸ Preferences ▸ Plugins…**) to dock the AutoEdit panel right inside your FilmCraft workspace with native parameter controls and one-click undo.
 
 | Panel section | What it does |
 |---|---|

@@ -34,10 +34,17 @@ if ($UserPath -like "*$BinDir*") {
     Write-Host "  [✓] Removed $BinDir from User PATH" -ForegroundColor Green
 }
 
-# 3. Clean up bin wrappers
+# 3. Clean up bin wrappers and FilmCraft plugin
 if (Test-Path $BinDir) {
     Remove-Item -Path $BinDir -Recurse -Force
     Write-Host "  [✓] Removed $BinDir" -ForegroundColor Green
+}
+
+$AppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+$PluginDir = Join-Path $AppData "FilmCraft\plugins\autoedit"
+if (Test-Path $PluginDir) {
+    Remove-Item -Path $PluginDir -Recurse -Force
+    Write-Host "  [✓] Removed FilmCraft plugin ($PluginDir)" -ForegroundColor Green
 }
 
 Write-Host ""

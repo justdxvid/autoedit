@@ -161,10 +161,14 @@ if __name__ == "__main__":
         c = sp.add_parser(name); c.add_argument("--title", default=default); c.add_argument("--subtitle", default="")
         c.add_argument("--theme", default="pastel", choices=["pastel", "bold", "clean"])
         c.add_argument("--position", default="middle", choices=["top", "middle", "bottom"]); c.add_argument("--seconds", type=float, default=3)
+    sp.add_parser("install-plugin", help="Install AutoEdit as a native extension panel inside FilmCraft")
+    sp.add_parser("uninstall-plugin", help="Remove AutoEdit extension from FilmCraft")
     a = p.parse_args(normalize_args(sys.argv[1:]))
     import features as F
     {"smooth": smooth, "zoom": zoom, "silences": silences, "transcribe": F.transcribe, "captions": F.captions,
      "pauses": F.remove_pauses, "fillers": F.remove_fillers, "badtakes": F.remove_bad_takes,
      "beatmarkers": F.beat_markers, "beatcuts": F.beat_cuts, "beatzoom": F.beat_zoom, "reel": F.reel,
      "animcaptions": lambda a: __import__("hf").animated_captions(a),
-     "title": lambda a: __import__("hf").title_card(a), "outro": lambda a: __import__("hf").outro(a)}[a.cmd](a)
+     "title": lambda a: __import__("hf").title_card(a), "outro": lambda a: __import__("hf").outro(a),
+     "install-plugin": lambda a: print(f"Installed AutoEdit plugin to {__import__('plugin_runner').install_plugin()}"),
+     "uninstall-plugin": lambda a: print("Removed AutoEdit plugin." if __import__("plugin_runner").uninstall_plugin() else "AutoEdit plugin not installed.")}[a.cmd](a)

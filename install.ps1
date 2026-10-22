@@ -135,6 +135,14 @@ Write-Ok "CLI command created: $AutoEditBat"
 $AutoEditCmd = Join-Path $BinDir "autoedit.cmd"
 Set-Content -Path $AutoEditCmd -Value $BatContent -Encoding ASCII
 
+# Install native FilmCraft extension plugin (%APPDATA%\FilmCraft\plugins\autoedit)
+$PluginDir = Join-Path $AppData "FilmCraft\plugins\autoedit"
+New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
+Copy-Item -Path (Join-Path $SrcDir "plugin.json") -Destination (Join-Path $PluginDir "plugin.json") -Force
+Copy-Item -Path (Join-Path $SrcDir "plugin_runner.py") -Destination (Join-Path $PluginDir "plugin_runner.py") -Force
+Set-Content -Path (Join-Path $PluginDir "autoedit_root.txt") -Value $SrcDir -Encoding UTF8 -NoNewline
+Write-Ok "FilmCraft native plugin installed: Window -> Extensions -> AutoEdit"
+
 # 7. Add $BinDir to User PATH if missing
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if ($UserPath -notlike "*$BinDir*") {

@@ -1,0 +1,87 @@
+import json
+import os
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import app
+import plugin_runner
+
+
+class TestFilmCraftPlugin(unittest.TestCase):
+    def test_manifest_matches_app_actions(self):
+        manifest_path = os.path.join(plugin_runner.AUTOEDIT_ROOT, "plugin.json")
+        self.assertTrue(os.path.isfile(manifest_path))
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        self.assertEqual(manifest["id"], "autoedit")
+        self.assertEqual(manifest["name"], "AutoEdit")
+        action_ids = {a["id"] for a in manifest["actions"]}
+        self.assertEqual(action_ids, set(app.ACTIONS.keys()))
+
+        for action in manifest["actions"]:
+            self.assertTrue(action["command"], f"Action {action['id']} missing command")
+            self.assertIn("{plugin_dir}/plugin_runner.py", action["command"][1])
+            self.assertEqual(action["command"][2], action["id"])
+
+    def test_plugins_dir_cross_platform(self):
+        with patch.dict(os.environ, {"FILMCRAFT_PLUGINS_DIR": ""}, clear=False):
+            os.environ.pop("FILMCRAFT_PLUGINS_DIR", None)
+            os.environ.pop("FILMCRAFT_DATA_DIR", None)
+
+            with patch("sys.platform", "win32"), patch.dict(os.environ, {"APPDATA": r"C:\Users\Tester\AppData\Roaming"}):
+                p = plugin_runner.filmcraft_plugins_dir()
+                self.assertIn("FilmCraft", p)
+                self.assertTrue(p.endswith("plugins"))
+
+            with patch("sys.platform", "darwin"):
+                p = plugin_runner.filmcraft_plugins_dir()
+                self.assertTrue(p.endswith("Library/Application Support/FilmCraft/plugins"))
+
+            with patch("sys.platform", "linux"), patch.dict(os.environ, {"XDG_DATA_HOME": "/tmp/xdg_data"}):
+                p = plugin_runner.filmcraft_plugins_dir()
+                self.assertEqual(p, os.path.join("/tmp/xdg_data", "filmcraft", "plugins"))
+
+    def test_install_and_uninstall_plugin(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = plugin_runner.install_plugin(td)
+            self.assertTrue(os.path.isdir(dest))
+            self.assertTrue(os.path.isfile(os.path.join(dest, "plugin.json")))
+            self.assertTrue(os.path.isfile(os.path.join(dest, "plugin_runner.py")))
+            self.assertTrue(os.path.isfile(os.path.join(dest, "autoedit_root.txt")))
+            with open(os.path.join(dest, "autoedit_root.txt"), "r", encoding="utf-8") as f:
+                self.assertEqual(f.read().strip(), plugin_runner.AUTOEDIT_ROOT)
+
+            removed = plugin_runner.uninstall_plugin(td)
+            self.assertTrue(removed)
+            self.assertFalse(os.path.exists(dest))
+            self.assertFalse(plugin_runner.uninstall_plugin(td))
+
+    def test_run_action_dispatches_with_params(self):
+        called = {}
+
+        def fake_zoom(ns):
+            called["amount"] = ns.amount
+            called["bridge"] = ns.bridge
+            print(f"zoom: animated (±{ns.amount}%)")
+
+        with patch.dict(app.ACTIONS, {"zoom": (fake_zoom, app.ACTIONS["zoom"][1])}):
+            out = plugin_runner.run_action("zoom", {"amount": 12.5}, bridge="127.0.0.1:9999")
+            self.assertEqual(called["amount"], 12.5)
+            self.assertEqual(called["bridge"], "127.0.0.1:9999")
+            self.assertIn("12.5%", out)
+
+    def test_main_cli_json_params(self):
+        def fake_zoom(ns):
+            print(f"zoom ok {ns.amount}")
+
+        with patch.dict(app.ACTIONS, {"zoom": (fake_zoom, app.ACTIONS["zoom"][1])}):
+            rc = plugin_runner.main(["zoom", "--params-json", '{"amount": 6.0}', "--bridge", "127.0.0.1:9876"])
+            self.assertEqual(rc, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

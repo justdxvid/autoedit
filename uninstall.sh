@@ -26,6 +26,8 @@ elif [ "$OS" = "Linux" ]; then
 fi
 
 rm -rf "$SUPPORT"                       # app files, speech models, effect history snapshots
+rm -rf "$HOME/Library/Application Support/FilmCraft/plugins/autoedit"
+rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/filmcraft/plugins/autoedit"
 rm -f "$HOME/.local/bin/filmcraft-cli"
 rm -rf "$HOME/.claude/skills/autoedit"
 
