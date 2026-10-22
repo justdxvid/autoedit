@@ -4,15 +4,21 @@ Each feature writes a small HyperFrames composition sized to the active sequence
 WebM with alpha (FilmCraft reads VP9 alpha; it is ~80x smaller than ProRes 4444), imports it and
 lays it on a video track above the footage.
 """
-import html, json, os, re, shutil, subprocess, tempfile, time
+import html, json, os, re, shutil, subprocess, sys, tempfile, time
 from autoedit import ex, fc, seq, TICKS, STEPS
 import features as F
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HF = os.path.join(HERE, "hyperframes", "node_modules", ".bin", "hyperframes")
 GSAP = os.path.join(HERE, "hyperframes", "node_modules", "gsap", "dist", "gsap.min.js")
-OUT = os.path.expanduser("~/Movies/AutoEdit Overlays")
-os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
+if sys.platform == "darwin":
+    OUT = os.path.expanduser("~/Movies/AutoEdit Overlays")
+else:
+    videos_dir = os.path.expanduser("~/Videos")
+    movies_dir = os.path.expanduser("~/Movies")
+    base_dir = movies_dir if os.path.exists(movies_dir) and not os.path.exists(videos_dir) else videos_dir
+    OUT = os.path.join(base_dir, "AutoEdit Overlays")
+os.environ["PATH"] = os.path.expanduser("~/.local/bin:") + "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
 
 # Colour themes shared by every overlay.
 THEMES = {

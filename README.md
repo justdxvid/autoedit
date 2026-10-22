@@ -2,11 +2,11 @@
 
 One-click edits for FilmCraft: smooth transitions + music, beat sync, slow zooms, captions,
 removing pauses / "um"s / bad takes, AutoReel, and animated titles, captions and outros (HyperFrames).
-A floating panel appears next to FilmCraft whenever it's open.
+A floating panel appears next to FilmCraft whenever it's open, or in your browser on Linux.
 
 Built on [FilmCraft](https://github.com/storytold/filmcraft)'s control API, with speech-to-text by
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and motion graphics by [HyperFrames](https://github.com/heygen-com/hyperframes).
-Everything runs on your Mac. macOS only.
+Runs entirely on your local machine (macOS & Linux).
 
 | Panel section | What it does |
 |---|---|
@@ -19,41 +19,60 @@ Everything runs on your Mac. macOS only.
 | ⚡ AutoReel | New beat-cut vertical reel from your clips and a song |
 | 🕘 History | Every effect is snapshotted first: revert any step |
 
-## Install (about 10 minutes the first time)
+## Install
 
-**Download `AutoEdit-for-FilmCraft.zip` from the [latest release](../../releases/latest)** (it includes FilmCraft's
-command-line tool), unzip it, then:
-
+### macOS
 1. **Install FilmCraft** and open it once.
-2. **Install Homebrew** if you don't have it: go to https://brew.sh, copy the one command into Terminal, press Enter.
-3. **Double-click `Install AutoEdit.command`** in this folder.
-   - macOS may say it "can't be opened". Then **right-click it → Open → Open**. (Only needed once.)
-   - If a window asks to install Apple's *command line developer tools*, click **Install**, wait, then double-click the installer again.
-   - The first run downloads ffmpeg, whisper.cpp and Node through Homebrew; that's the slow part.
+2. **Install Homebrew** if you don't have it: https://brew.sh
+3. Run `./install.sh` or double-click **`Install AutoEdit.command`**.
 4. **Quit FilmCraft and open it again.** The AutoEdit panel appears next to it (scissors ✂ icon in the menu bar).
 
-Put songs you're allowed to use in **~/Music/AutoEdit** (or use *Add song…* in the panel).
+### Linux
+1. **Install dependencies**:
+   - Python 3
+   - `ffmpeg` (e.g. `sudo apt install ffmpeg` / `sudo pacman -S ffmpeg` / `sudo dnf install ffmpeg`)
+   - `node` & `npm` (Node 18+, Node 22 recommended for HyperFrames)
+   - `whisper.cpp` (`whisper-cli`, e.g. `sudo pacman -S whisper-cpp` or build from [whisper.cpp](https://github.com/ggml-org/whisper.cpp))
+2. Ensure `filmcraft-cli` is in your `PATH` or `~/.local/bin/filmcraft-cli`.
+3. **Run `./install.sh`**:
+   - Sets up the HyperFrames renderer and dependencies.
+   - Installs the `autoedit` command in `~/.local/bin/autoedit`.
+   - Creates a desktop application launcher in `~/.local/share/applications/autoedit.desktop`.
+   - Creates an optional systemd user service in `~/.config/systemd/user/autoedit.service`.
+4. Launch AutoEdit by running `autoedit` or selecting **AutoEdit** from your application launcher. It opens the web panel at `http://127.0.0.1:8765`.
+
+Put songs you're allowed to use in **~/Music/AutoEdit** (or click *Add song…* in the panel).
 
 ## Good to know
 
 - Every effect can be undone from the panel's **History** (or **↶ Undo last effect**).
-- Captions and speech clean-up run on your Mac; the speech model (~150 MB, ~470 MB for Hindi/Punjabi) downloads the first time you use them.
-- Motion graphics render with HyperFrames and need an internet connection while rendering.
-- You can move or delete this folder after installing; AutoEdit keeps its own copy.
-- Something stopped working (e.g. after updating FilmCraft)? Just run the installer again.
+- Captions and speech clean-up run locally on your machine; speech models (~150 MB, ~470 MB for Hindi/Punjabi) download the first time you use them into standard app data paths (`~/.local/share/autoedit/models` on Linux, `~/Library/Application Support/AutoEdit/models` on macOS).
+- Motion graphics render with HyperFrames and transparent WebM (VP9 alpha).
+- Something stopped working (e.g. after updating FilmCraft)? Just run `./install.sh` again.
 
-## From source
+## Command-Line Usage
 
-`git clone` this repo, put an unzipped `filmcraft-cli-*-macos-*` folder in `~/Downloads` (from FilmCraft's
-releases), then run `./install.sh`. `./make-package.sh` builds the release zip.
+The engine also works directly from the command line:
 
-The engine also works from the command line: `python3 autoedit.py --help`.
+```bash
+python3 autoedit.py --help
+python3 autoedit.py --project myproject.fcproj zoom --amount 8
+python3 autoedit.py --project myproject.fcproj smooth --frames 15
+```
+
+## Running Tests
+
+Run the test suite:
+
+```bash
+python3 -m unittest discover -s tests -p "test_*.py"
+```
 
 ## Uninstall
 
-Double-click **`Uninstall AutoEdit.command`**. Your projects, videos and songs are kept.
+Run `./uninstall.sh` (or double-click **`Uninstall AutoEdit.command`** on macOS). Your projects, videos and songs are kept.
 
 ## License
 
-MIT. FilmCraft's command-line tool (bundled in release zips) is MIT/Apache-2.0; HyperFrames is Apache-2.0;
+MIT. FilmCraft's command-line tool is MIT/Apache-2.0; HyperFrames is Apache-2.0;
 whisper.cpp is MIT. No music is included: only use songs you have the rights to.

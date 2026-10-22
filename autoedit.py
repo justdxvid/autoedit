@@ -12,17 +12,20 @@
 Target: the live app (default, FilmCraft with its control port) or a project file
 headless with --project p.fcproj (saved back when done).
 """
-import argparse, json, os, subprocess, sys
+import argparse, json, os, shutil, subprocess, sys
 
 def find_cli():
     """Stable link first, then the newest unpacked filmcraft-cli in the usual places."""
     import glob
     if os.environ.get("FILMCRAFT_CLI"): return os.environ["FILMCRAFT_CLI"]
+    which = shutil.which("filmcraft-cli")
+    if which: return which
     link = os.path.expanduser("~/.local/bin/filmcraft-cli")
     if os.path.exists(link): return link
     pats = ["~/tools/filmcraft-cli-*/filmcraft-cli", "~/Downloads/filmcraft-cli-*/filmcraft-cli",
             "~/Applications/filmcraft-cli-*/filmcraft-cli", "/Applications/filmcraft-cli-*/filmcraft-cli",
-            "~/Library/Application Support/AutoEdit/filmcraft-cli-*/filmcraft-cli"]
+            "~/Library/Application Support/AutoEdit/filmcraft-cli-*/filmcraft-cli",
+            "~/.local/share/autoedit/filmcraft-cli-*/filmcraft-cli"]
     found = sorted(p for pat in pats for p in glob.glob(os.path.expanduser(pat)))
     return found[-1] if found else "filmcraft-cli"
 

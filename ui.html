@@ -181,7 +181,11 @@ async function post(cmd,body={}){
   refresh(); loadHistory();
 }
 document.addEventListener('click',e=>{const b=e.target.closest('[data-cmd]');if(!b)return;e.preventDefault();
-  const cmd=b.dataset.cmd; try{post(cmd,(ACTIONS[cmd]||(()=>({})))())}catch(err){show('error','Didn\u2019t work',String(err))}});
+  const cmd=b.dataset.cmd;
+  if(cmd==='picksong'&&!navigator.userAgent.includes('AutoEdit')&&$('browserFileInput')){
+    $('browserFileInput').click();return;
+  }
+  try{post(cmd,(ACTIONS[cmd]||(()=>({})))())}catch(err){show('error','Didn\u2019t work',String(err))}});
 let lastHist='';
 async function loadHistory(){let h=[];try{h=await (await fetch('/history')).json()}catch(e){}
   $('undoBtn').disabled=busy||!h.some(e=>!e.reverted);
@@ -203,5 +207,17 @@ async function refresh(){let s;try{s=await (await fetch('/status')).json()}catch
   document.querySelectorAll('.musicsel').forEach(sel=>{const cur=sel.value;
    sel.innerHTML=(sel.id=='music'?'<option value="">No music</option>':'<option value="">Song already on the timeline</option>')+s.music.map(m=>`<option>${m}</option>`).join('');
    sel.value=cur||(sel.id=='music'?(s.music[0]||''):'')})}
+const fi=document.createElement('input'); fi.type='file'; fi.id='browserFileInput'; fi.multiple=true;
+fi.accept='.wav,.mp3,.m4a,.aiff,.aif,.flac,.ogg,.aac,audio/*'; fi.style.display='none';
+fi.onchange=async e=>{
+  const files=e.target.files; if(!files||!files.length)return;
+  show('busy','Uploading music…','');
+  for(const f of files){
+    await fetch('/upload',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name)},body:f});
+  }
+  show('ok','Songs added',`Added ${files.length} song(s) to your music library.`,[['OK',hide,'ghost']]);
+  refresh();
+};
+document.body.appendChild(fi);
 refresh(); loadHistory(); setInterval(()=>{if(!busy){refresh();loadHistory()}},5000);
 </script>

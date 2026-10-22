@@ -5,17 +5,32 @@ project file (--project). Speech-to-text runs locally with whisper.cpp (FilmCraf
 transcription switched off), and the result is imported with transcript.set so FilmCraft's caption
 and text-based-editing commands can use it.
 """
-import array, json, math, os, re, subprocess, tempfile
+import array, json, math, os, re, shutil, subprocess, sys, tempfile
 from autoedit import ex, fc, seq, TICKS, STEPS
 
 def autoedit_steps(n): STEPS[0] += n
 
-os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
-MODELS = os.path.expanduser("~/Library/Application Support/AutoEdit/models")
+os.environ["PATH"] = os.path.expanduser("~/.local/bin:") + "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
+if sys.platform == "darwin":
+    MODELS = os.path.expanduser("~/Library/Application Support/AutoEdit/models")
+else:
+    xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    MODELS = os.path.join(xdg_data, "autoedit", "models")
 MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin"
 
 
 # ---------------------------------------------------------------- helpers
+
+def find_whisper():
+    if os.environ.get("WHISPER_CLI"): return os.environ["WHISPER_CLI"]
+    for name in ["whisper-cli", "whisper-cpp", "whisper", "main"]:
+        p = shutil.which(name)
+        if p: return p
+    for p in [os.path.expanduser("~/.local/bin/whisper-cli"), os.path.expanduser("~/.local/bin/main"),
+              os.path.expanduser("~/Library/Application Support/AutoEdit/whisper-cli"),
+              os.path.expanduser("~/.local/share/autoedit/whisper-cli")]:
+        if os.path.exists(p): return p
+    return "whisper-cli"
 
 def sh(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
@@ -62,7 +77,7 @@ def speech_regions(wav, total):
 def whisper_words(wav, offset, model, lang):
     with tempfile.TemporaryDirectory() as td:
         out = os.path.join(td, "w")
-        sh(["whisper-cli", "-m", model, "-f", wav, "-l", lang, "-ojf", "-of", out, "-np"])
+        sh([find_whisper(), "-m", model, "-f", wav, "-l", lang, "-ojf", "-of", out, "-np"])
         if not os.path.exists(out + ".json"): return []
         d = json.load(open(out + ".json"))
     words = []

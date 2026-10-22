@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Point-and-click front end for autoedit (stdlib only). Run it, or double-click Start AutoEdit.command."""
-import argparse, contextlib, re, shutil, urllib.parse, io, json, os, socket, subprocess, threading, time, webbrowser
+import argparse, contextlib, re, shutil, sys, urllib.parse, io, json, os, socket, subprocess, threading, time, webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import autoedit
 
 AUDIO = os.path.expanduser("~/Music/AutoEdit")      # shared music library for every project
 PORT = int(os.environ.get("FILMCRAFT_CONTROL_PORT", 9876))
-os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")  # ffmpeg under launchd
+os.environ["PATH"] = os.path.expanduser("~/.local/bin:") + "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")  # ffmpeg/filmcraft-cli
 
 def current_project():
     try:
@@ -26,10 +26,22 @@ def connected():
 def launch():
     """Open FilmCraft with the control port; restart it if it is running without one."""
     if connected(): return "FilmCraft is already connected."
-    running = subprocess.run(["pgrep", "-x", "FilmCraft"], capture_output=True).returncode == 0
+    running = subprocess.run(["pgrep", "-xi", "filmcraft"], capture_output=True).returncode == 0
     if running:
-        subprocess.run(["osascript", "-e", 'tell application "FilmCraft" to quit']); time.sleep(3)
-    subprocess.Popen(["open", "-a", "FilmCraft", "--env", f"FILMCRAFT_CONTROL_PORT={PORT}"])
+        if sys.platform == "darwin":
+            subprocess.run(["osascript", "-e", 'tell application "FilmCraft" to quit']); time.sleep(3)
+        else:
+            subprocess.run(["pkill", "-xi", "filmcraft"]); time.sleep(1)
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", "-a", "FilmCraft", "--env", f"FILMCRAFT_CONTROL_PORT={PORT}"])
+    else:
+        fc_bin = shutil.which("filmcraft") or os.path.expanduser("~/.local/bin/filmcraft")
+        env = os.environ.copy()
+        env["FILMCRAFT_CONTROL_PORT"] = str(PORT)
+        if shutil.which("filmcraft") or os.path.exists(fc_bin):
+            subprocess.Popen([fc_bin], env=env)
+        else:
+            return "FilmCraft not found in PATH or ~/.local/bin. Launch FilmCraft with FILMCRAFT_CONTROL_PORT=9876."
     for _ in range(30):
         time.sleep(0.5)
         if connected(): return "FilmCraft opened and ready."
@@ -59,17 +71,36 @@ LABELS = {"smooth": "Smooth transitions + music", "zoom": "Slow zoom", "beatcuts
           "beatzoom": "Beat zooms", "beatmarkers": "Beat markers", "captions": "Captions", "pauses": "Remove pauses",
           "fillers": "Remove um/uh", "badtakes": "Remove bad takes", "reel": "AutoReel",
           "animcaptions": "Animated captions", "title": "Title card", "outro": "Outro"}
-HISTORY_DIR = os.environ.get("AUTOEDIT_HISTORY_DIR") or os.path.expanduser("~/Library/Application Support/AutoEdit/history")
+
+if sys.platform == "darwin":
+    DATA_DIR = os.path.expanduser("~/Library/Application Support/AutoEdit")
+    LOG_DIR = os.path.expanduser("~/Library/Logs")
+    UNSAVED_DIR = os.path.expanduser("~/Movies/AutoEdit Projects")
+else:
+    xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    DATA_DIR = os.path.join(xdg_data, "autoedit")
+    xdg_state = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    LOG_DIR = os.path.join(xdg_state, "autoedit")
+    videos_dir = os.path.expanduser("~/Videos")
+    movies_dir = os.path.expanduser("~/Movies")
+    base_dir = movies_dir if os.path.exists(movies_dir) and not os.path.exists(videos_dir) else videos_dir
+    UNSAVED_DIR = os.path.join(base_dir, "AutoEdit Projects")
+
+HISTORY_DIR = os.environ.get("AUTOEDIT_HISTORY_DIR") or os.path.join(DATA_DIR, "history")
 HISTORY = os.path.join(HISTORY_DIR, "history.json")
+LOG = os.path.join(LOG_DIR, "AutoEdit.log")
 hist_lock = threading.Lock()
 
 def load_history():
-    try: return json.load(open(HISTORY))
+    try:
+        with open(HISTORY) as f:
+            return json.load(f)
     except Exception: return []
 
 def save_history(h):
     os.makedirs(HISTORY_DIR, exist_ok=True)
-    json.dump(h[-300:], open(HISTORY, "w"), indent=1)
+    with open(HISTORY, "w") as f:
+        json.dump(h[-300:], f, indent=1)
 
 def engine():
     return argparse.Namespace(project=TEST_PROJECT, bridge=f"127.0.0.1:{PORT}")
@@ -77,7 +108,12 @@ def engine():
 def project_path(a):
     return autoedit.fc(["inspect", "project"], a).get("path")
 
-UNSAVED_DIR = os.path.expanduser("~/Movies/AutoEdit Projects")
+def open_folder(path):
+    os.makedirs(path, exist_ok=True)
+    if sys.platform == "darwin":
+        subprocess.run(["open", path])
+    else:
+        subprocess.run(["xdg-open", path])
 
 def snapshot(a, cmd):
     """Save a full copy of the project as it is right now (FilmCraft keeps working on the original)."""
@@ -185,19 +221,40 @@ PICK_SCRIPT = [
 ]
 
 def pick_songs():
-    """Native macOS file picker (works no matter which window has focus)."""
-    r = subprocess.run(["osascript"] + [x for line in PICK_SCRIPT for x in ("-e", line)], capture_output=True, text=True)
-    if r.returncode:
-        return "No song chosen." if "-128" in r.stderr or not r.stderr.strip() else f"Error: {r.stderr.strip()}"
-    added = add_songs(r.stdout.splitlines())
-    return ("Added " + ", ".join(added) + " to your music library.") if added else "Those files aren't songs AutoEdit can use."
+    """Native file picker (falls back to zenity/kdialog on Linux, or opening music folder)."""
+    if sys.platform == "darwin":
+        r = subprocess.run(["osascript"] + [x for line in PICK_SCRIPT for x in ("-e", line)], capture_output=True, text=True)
+        if r.returncode:
+            return "No song chosen." if "-128" in r.stderr or not r.stderr.strip() else f"Error: {r.stderr.strip()}"
+        added = add_songs(r.stdout.splitlines())
+        return ("Added " + ", ".join(added) + " to your music library.") if added else "Those files aren't songs AutoEdit can use."
+    if shutil.which("zenity"):
+        r = subprocess.run(["zenity", "--file-selection", "--multiple", "--separator=\n",
+                            '--file-filter=Audio files | *.wav *.mp3 *.m4a *.aiff *.aif *.flac *.ogg *.aac',
+                            '--title=Choose songs for AutoEdit'], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            added = add_songs(r.stdout.strip().splitlines())
+            return ("Added " + ", ".join(added) + " to your music library.") if added else "Those files aren't songs AutoEdit can use."
+        return "No song chosen."
+    elif shutil.which("kdialog"):
+        r = subprocess.run(["kdialog", "--getopenfilename", os.path.expanduser("~"),
+                            "*.wav *.mp3 *.m4a *.aiff *.aif *.flac *.ogg *.aac | Audio files",
+                            "--multiple", "--separate-output"], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            added = add_songs(r.stdout.strip().splitlines())
+            return ("Added " + ", ".join(added) + " to your music library.") if added else "Those files aren't songs AutoEdit can use."
+        return "No song chosen."
+    open_folder(AUDIO)
+    return f"Opened your music folder ({AUDIO}). Drop songs there, or upload via the web panel."
 
 PAGE = open(os.path.join(os.path.dirname(__file__), "ui.html")).read()
 
-LOG = os.path.expanduser("~/Library/Logs/AutoEdit.log")
-
 def log(line):
-    with open(LOG, "a") as f: f.write(time.strftime("%H:%M:%S ") + line + "\n")
+    try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
+        with open(LOG, "a") as f: f.write(time.strftime("%H:%M:%S ") + line + "\n")
+    except OSError:
+        pass
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -231,7 +288,7 @@ class H(BaseHTTPRequestHandler):
         elif cmd in ("revert", "undo"):
             res = revert(o.get("id")) if connected() else {"msg": "FilmCraft isn't connected.", "kind": "error"}
         elif cmd == "musicfolder":
-            os.makedirs(AUDIO, exist_ok=True); subprocess.run(["open", AUDIO])
+            open_folder(AUDIO)
             msg = "Opened your music folder. Drop songs in it and they appear in the list within a few seconds."
         else:
             if o.get("music"): o["music"] = os.path.join(AUDIO, o["music"])
