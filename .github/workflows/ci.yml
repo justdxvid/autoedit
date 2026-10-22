@@ -28,13 +28,17 @@ jobs:
       - name: Install system dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          if ! command -v ffmpeg > /dev/null 2>&1; then
+            sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=15
+            sudo apt-get install -y ffmpeg
+          fi
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install ffmpeg || true
+          if ! command -v ffmpeg > /dev/null 2>&1; then
+            brew install ffmpeg || true
+          fi
 
       - name: Run Test Suite
         run: |
