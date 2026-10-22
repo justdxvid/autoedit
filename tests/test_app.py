@@ -85,11 +85,16 @@ class TestApp(unittest.TestCase):
                     content = f.read()
                     self.assertIn("hello test log", content)
 
-    @patch("subprocess.run")
-    def test_open_folder(self, mock_run):
+    def test_open_folder(self):
         with tempfile.TemporaryDirectory() as td:
-            app.open_folder(td)
-            mock_run.assert_called_once()
+            if sys.platform == "win32" and hasattr(os, "startfile"):
+                with patch("os.startfile") as mock_start:
+                    app.open_folder(td)
+                    mock_start.assert_called_once_with(td)
+            else:
+                with patch("subprocess.run") as mock_run:
+                    app.open_folder(td)
+                    mock_run.assert_called_once()
 
     def test_snapshot_and_restore(self):
         with tempfile.TemporaryDirectory() as td:

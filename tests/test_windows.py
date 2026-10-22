@@ -136,15 +136,19 @@ class TestWindowsSupport(unittest.TestCase):
             self.assertIn("Added track1.wav, track2.mp3", res)
 
     def test_windows_setup_path_separators(self):
-        # Verify PATH separator logic uses os.pathsep
+        # Verify PATH separator logic uses semicolon delimiter on Windows
         with patch("sys.platform", "win32"), \
              patch.dict(os.environ, {
                  "PATH": r"C:\Windows\system32;C:\Windows",
                  "LOCALAPPDATA": r"C:\Users\Tester\AppData\Local",
              }):
             app._setup_path()
-            self.assertNotIn(":", os.environ["PATH"].replace(r"C:\Windows\system32", "").replace(r"C:\Windows", "").replace(r"C:\Users", ""))
-            self.assertIn(";", os.environ["PATH"])
+            parts = os.environ["PATH"].split(";")
+            self.assertGreater(len(parts), 1)
+            # Ensure entries are not improperly joined with unix colons (except drive letter C:)
+            for p in parts:
+                if len(p) >= 2 and p[1] == ":":
+                    self.assertNotIn(":", p[2:], f"Path segment {p} has invalid colon separator")
 
 if __name__ == "__main__":
     unittest.main()
