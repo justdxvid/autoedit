@@ -36,8 +36,97 @@ def filmcraft_plugins_dir():
     return os.path.join(xdg, "filmcraft", "plugins")
 
 
+def _enable_extensions_in_workspaces(plugins_root):
+    """Ensure saved workspaces in FilmCraft's workspaces.json include the Extensions panel."""
+    data_dir = os.path.dirname(os.path.abspath(plugins_root))
+    ws_path = os.path.join(data_dir, "workspaces.json")
+    if not os.path.isfile(ws_path):
+        return
+    try:
+        with open(ws_path, "r", encoding="utf-8") as f:
+            ws = json.load(f)
+    except Exception:
+        return
+
+    def inject_tab(node):
+        if not isinstance(node, dict):
+            return False
+        if "Tabs" in node and isinstance(node["Tabs"], dict):
+            panels = node["Tabs"].get("panels", [])
+            if "Extensions" in panels:
+                return True
+            if "History" in panels or "Effects" in panels or "Project" in panels:
+                panels.append("Extensions")
+                return True
+        if "Split" in node and isinstance(node["Split"], dict):
+            sp = node["Split"]
+            return inject_tab(sp.get("a")) or inject_tab(sp.get("b"))
+        return False
+
+    changed = False
+    entries = ws.get("saved", []) if isinstance(ws, dict) else []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        layout = entry.get("layout")
+        if isinstance(layout, dict) and inject_tab(layout):
+            changed = True
+    if changed:
+        try:
+            with open(ws_path, "w", encoding="utf-8") as f:
+                json.dump(ws, f, indent=2)
+        except Exception:
+            pass
+
+
+def _patch_local_filmcraft_repo():
+    """If a local FilmCraft checkout exists without the Extensions panel, apply our bundled patch."""
+    import subprocess
+    patch_file = os.path.join(AUTOEDIT_ROOT, "filmcraft_patch", "extensions.patch")
+    if not os.path.isfile(patch_file):
+        return
+    candidates = [
+        os.environ.get("FILMCRAFT_SRC", ""),
+        os.path.join(os.path.dirname(AUTOEDIT_ROOT), "filmcraft"),
+        os.path.expanduser("~/Projects/filmcraft"),
+        os.path.expanduser("~/filmcraft"),
+    ]
+    for repo in candidates:
+        if not repo or not os.path.isdir(os.path.join(repo, "crates", "ui-egui", "src", "panels")):
+            continue
+        ext_rs = os.path.join(repo, "crates", "ui-egui", "src", "panels", "extensions.rs")
+        if os.path.isfile(ext_rs):
+            return
+        try:
+            chk = subprocess.run(["git", "apply", "--check", patch_file], cwd=repo, capture_output=True)
+            if chk.returncode == 0:
+                subprocess.run(["git", "apply", patch_file], cwd=repo, capture_output=True)
+        except Exception:
+            pass
+        return
+
+
+def _activate_live_extensions_panel():
+    """If FilmCraft is currently running on the control bridge, reload & reveal the Extensions panel."""
+    import socket
+    import subprocess
+    port = int(os.environ.get("FILMCRAFT_CONTROL_PORT", "9876"))
+    try:
+        socket.create_connection(("127.0.0.1", port), 0.3).close()
+    except OSError:
+        return
+    try:
+        import autoedit
+        cli = autoedit.find_cli()
+        bridge = f"127.0.0.1:{port}"
+        subprocess.run([cli, "--bridge", bridge, "exec", "extensions.reload", "{}"], capture_output=True, timeout=2)
+        subprocess.run([cli, "--bridge", bridge, "exec", "extensions.open", '{"id":"autoedit"}'], capture_output=True, timeout=2)
+    except Exception:
+        pass
+
+
 def install_plugin(target_root=None):
-    """Install AutoEdit into FilmCraft's plugins directory."""
+    """Install AutoEdit into FilmCraft's plugins directory and reveal the Extensions panel."""
     plugins_root = target_root or filmcraft_plugins_dir()
     dest = os.path.join(plugins_root, "autoedit")
     os.makedirs(dest, exist_ok=True)
@@ -54,6 +143,10 @@ def install_plugin(target_root=None):
             os.symlink(src_hf, dest_hf, target_is_directory=True)
         except OSError:
             pass
+    _enable_extensions_in_workspaces(plugins_root)
+    if target_root is None:
+        _patch_local_filmcraft_repo()
+        _activate_live_extensions_panel()
     return dest
 
 

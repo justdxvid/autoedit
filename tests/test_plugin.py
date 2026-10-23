@@ -60,6 +60,33 @@ class TestFilmCraftPlugin(unittest.TestCase):
             self.assertFalse(os.path.exists(dest))
             self.assertFalse(plugin_runner.uninstall_plugin(td))
 
+    def test_enable_extensions_in_workspaces(self):
+        with tempfile.TemporaryDirectory() as td:
+            plugins_dir = os.path.join(td, "plugins")
+            os.makedirs(plugins_dir, exist_ok=True)
+            ws_path = os.path.join(td, "workspaces.json")
+            sample_ws = {
+                "saved": [
+                    {
+                        "name": "Editing",
+                        "layout": {
+                            "Split": {
+                                "a": {"Tabs": {"panels": ["Project", "Effects"], "active": 0}},
+                                "b": {"Tabs": {"panels": ["Timeline"], "active": 0}},
+                            }
+                        },
+                    }
+                ]
+            }
+            with open(ws_path, "w", encoding="utf-8") as f:
+                json.dump(sample_ws, f)
+
+            plugin_runner._enable_extensions_in_workspaces(plugins_dir)
+            with open(ws_path, "r", encoding="utf-8") as f:
+                updated = json.load(f)
+            panels_a = updated["saved"][0]["layout"]["Split"]["a"]["Tabs"]["panels"]
+            self.assertIn("Extensions", panels_a)
+
     def test_run_action_dispatches_with_params(self):
         called = {}
 
