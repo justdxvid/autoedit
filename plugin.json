@@ -104,11 +104,11 @@
           "id": "style",
           "label": "Style",
           "type": "choice",
-          "default": "pop",
+          "default": "karaoke",
           "choices": [
-            { "value": "pop", "label": "Pop" },
+            { "value": "karaoke", "label": "Karaoke" },
             { "value": "pastel", "label": "Pastel" },
-            { "value": "clean", "label": "Clean" }
+            { "value": "bounce", "label": "Bounce" }
           ]
         },
         {
@@ -131,7 +131,7 @@
       "description": "Ripple-delete dead air and long silences between spoken phrases.",
       "command": ["python3", "{plugin_dir}/plugin_runner.py", "pauses"],
       "params": [
-        { "id": "min", "label": "Min pause (s)", "type": "float", "default": 0.6, "min": 0.2, "max": 5.0 },
+        { "id": "min", "label": "Min pause (s)", "type": "float", "default": 0.3, "min": 0.15, "max": 5.0 },
         {
           "id": "language",
           "label": "Language",
@@ -198,11 +198,11 @@
           "id": "theme",
           "label": "Theme",
           "type": "choice",
-          "default": "editorial",
+          "default": "pastel",
           "choices": [
-            { "value": "editorial", "label": "Editorial" },
+            { "value": "pastel", "label": "Pastel" },
             { "value": "bold", "label": "Bold" },
-            { "value": "minimal", "label": "Minimal" }
+            { "value": "clean", "label": "Clean" }
           ]
         },
         {
@@ -232,11 +232,22 @@
           "id": "theme",
           "label": "Theme",
           "type": "choice",
-          "default": "editorial",
+          "default": "pastel",
           "choices": [
-            { "value": "editorial", "label": "Editorial" },
+            { "value": "pastel", "label": "Pastel" },
             { "value": "bold", "label": "Bold" },
-            { "value": "minimal", "label": "Minimal" }
+            { "value": "clean", "label": "Clean" }
+          ]
+        },
+        {
+          "id": "position",
+          "label": "Position",
+          "type": "choice",
+          "default": "middle",
+          "choices": [
+            { "value": "top", "label": "Top" },
+            { "value": "middle", "label": "Center" },
+            { "value": "bottom", "label": "Bottom" }
           ]
         },
         { "id": "seconds", "label": "Duration (s)", "type": "float", "default": 3.0, "min": 1.0, "max": 10.0 }

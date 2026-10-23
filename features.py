@@ -5,7 +5,7 @@ project file (--project). Speech-to-text runs locally with whisper.cpp (FilmCraf
 transcription switched off), and the result is imported with transcript.set so FilmCraft's caption
 and text-based-editing commands can use it.
 """
-import array, json, math, os, re, shutil, subprocess, sys, tempfile
+import array, glob, json, math, os, re, shutil, subprocess, sys, tempfile
 from autoedit import ex, fc, seq, TICKS, STEPS
 
 def autoedit_steps(n): STEPS[0] += n
@@ -24,12 +24,24 @@ def _setup_path():
             os.path.join(userprofile, "scoop", "shims"),
             r"C:\ProgramData\chocolatey\bin",
             r"C:\Program Files\ffmpeg\bin",
+            r"C:\Program Files\nodejs",
         ]:
             if d and os.path.exists(d): extra.append(d)
     elif sys.platform == "darwin":
         extra = [os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
     else:
         extra = [os.path.expanduser("~/.local/bin"), "/usr/local/bin", "/usr/bin"]
+    if sys.platform != "win32":
+        for pat in [
+            "~/.local/share/mise/shims",
+            "~/.local/share/mise/installs/node/*/bin",
+            "~/.nvm/versions/node/*/bin",
+            "~/.volta/bin",
+            "~/.bun/bin",
+        ]:
+            for p in sorted(glob.glob(os.path.expanduser(pat)), reverse=True):
+                if os.path.isdir(p):
+                    extra.append(p)
     cur = os.environ.get("PATH", "")
     to_add = [d for d in extra if d not in cur]
     if to_add:
@@ -145,26 +157,52 @@ def transcribe_file(path, lang="en"):
                 words.append(w)
     return words
 
+def has_whisper_cli():
+    w = find_whisper()
+    return bool(w and (os.path.exists(w) or shutil.which(w)))
+
 def transcribe(a):
     """Transcribe every clip with sound in the active sequence and import the transcripts."""
     s = seq(a)
-    have = {i["item"] for i in ex(a, "transcript.inspect").get("items", [])} if not a.force else set()
+    force = getattr(a, "force", False)
+    lang_req = getattr(a, "language", "auto") or "auto"
+    have = {i["item"] for i in ex(a, "transcript.inspect").get("items", [])} if not force else set()
+    all_audio_items = {c["item"] for t in s["audio"] for c in t["items"]}
+    props_by_item = {it: ex(a, "file.mediaProperties", items=[it])[0] for it in all_audio_items}
+    has_movie_audio = any(p.get("type") == "Movie" and p.get("audio") for p in props_by_item.values())
     mc = music_clip(a, s)
-    music_item = mc[0]["item"] if mc and mc[0]["duration"] > 0.6 * s["duration"] else None
+    music_item = mc[0]["item"] if (mc and has_movie_audio and len(all_audio_items) > 1 and mc[0]["duration"] > 0.6 * s["duration"]) else None
     # muted tracks still hold speech (e.g. the voice muted under music), so only the music bed is skipped
-    items = sorted({c["item"] for t in s["audio"] for c in t["items"]} - {music_item})
+    items = sorted(all_audio_items - ({music_item} if music_item is not None else set()))
     done = 0
+    use_cli = has_whisper_cli()
     for item in items:
         if item in have: continue
-        props = ex(a, "file.mediaProperties", items=[item])[0]
+        props = props_by_item.get(item) or ex(a, "file.mediaProperties", items=[item])[0]
         if props.get("type") not in ("Movie", "Audio", "AudioOnly") or not props.get("audio"): continue
         say(f"Transcribing {props['name']}…")
-        words = transcribe_file(props["path"], a.language)
-        if not words: say(f"  no speech found in {props['name']}"); continue
-        tw = [{"text": w["text"], "start": int(w["start"] * TICKS), "end": int(w["end"] * TICKS)} for w in words]
-        lang = a.language if a.language != "auto" else "en"
-        ex(a, "transcript.set", item=item, transcript={"language": lang, "speakers": [{"name": "Speaker 1"}], "words": tw})
-        say(f"  {len(words)} words"); done += 1
+        if use_cli:
+            words = transcribe_file(props["path"], lang_req)
+            if words:
+                tw = [{"text": w["text"], "start": int(w["start"] * TICKS), "end": int(w["end"] * TICKS)} for w in words]
+                lang = lang_req if lang_req != "auto" else "en"
+                ex(a, "transcript.set", item=item, transcript={"language": lang, "speakers": [{"name": "Speaker 1"}], "words": tw})
+                say(f"  {len(words)} words"); done += 1
+                continue
+        # Fallback to FilmCraft's built-in Whisper engine when whisper-cli is not installed
+        gen_kw = {"items": [item]}
+        if lang_req and lang_req != "auto":
+            gen_kw["language"] = lang_req
+        try:
+            r = ex(a, "transcript.generate", **gen_kw)
+            gen_items = r.get("items", []) if isinstance(r, dict) else []
+            n_words = sum(gi.get("words", 0) for gi in gen_items)
+            if n_words > 0:
+                say(f"  {n_words} words"); done += 1
+            else:
+                say(f"  no speech found in {props['name']}")
+        except BaseException:
+            say(f"  no speech found in {props['name']}")
     say(f"transcribe: {done} clip(s) transcribed, {len(have & set(items))} already had a transcript")
 
 
@@ -211,37 +249,177 @@ import contextlib
 
 @contextlib.contextmanager
 def music_protected(a):
-    """Lock audio-only (music) tracks and secondary video overlay tracks while speech is cut,
-    then trim the song to the new video end. Without this, ripple cuts chop the music or fail
-    when a sync-locked overlay track (e.g. V2) has clips in the way."""
+    """Lock non-speech audio (music) tracks, still-only video tracks, and secondary video overlay
+    tracks while speech is cut, then trim any background song that matched the video end."""
     s = seq(a)
+    ti = ex(a, "transcript.inspect")
+    transcribed_items = {i["item"] for i in ti.get("items", []) if i.get("words", 0) > 0}
     primary_vt = next((t["id"] for t in s["video"] if t["items"]), None)
+    vend_before = max((c["end"] for t in s["video"] if t["id"] == primary_vt for c in t["items"]), default=0)
     v_tracks = [t["id"] for t in s["video"] if t["id"] != primary_vt and not t["locked"] and t["items"]]
-    tracks = [t["id"] for t in s["audio"] if not t["locked"] and t["items"] and
-              all(ex(a, "file.mediaProperties", items=[c["item"]])[0].get("type") in ("Audio", "AudioOnly") for c in t["items"])]
+    primary_is_still_only = False
+    if primary_vt is not None:
+        pvt_items = next((t["items"] for t in s["video"] if t["id"] == primary_vt), [])
+        if pvt_items and all(ex(a, "file.mediaProperties", items=[c["item"]])[0].get("type") == "Still" for c in pvt_items):
+            v_tracks.append(primary_vt)
+            primary_is_still_only = True
+    # Only lock an audio track as background music if another track holds the transcribed speech
+    tracks = []
+    if transcribed_items:
+        for t in s["audio"]:
+            if not t["locked"] and t["items"]:
+                t_items = {c["item"] for c in t["items"]}
+                if not (t_items & transcribed_items) and all(
+                    ex(a, "file.mediaProperties", items=[it])[0].get("type") in ("Audio", "AudioOnly") for it in t_items
+                ):
+                    tracks.append(t["id"])
     for t in v_tracks + tracks: ex(a, "timeline.setTrack", track=t, locked=True)
     try:
         yield
     finally:
         for t in v_tracks + tracks: ex(a, "timeline.setTrack", track=t, locked=False)
-        s2 = seq(a)
-        vend = max((c["end"] for t in s2["video"] if t["id"] == primary_vt for c in t["items"]), default=0)
-        for t in s2["audio"]:
-            if t["id"] in tracks:
-                for c in t["items"]:
-                    if c["end"] > vend > c["start"]:
-                        ex(a, "timeline.trim", clip=c["clip"], edge="out", mode="regular", delta=vend - c["end"])
+        if not primary_is_still_only and tracks:
+            s2 = seq(a)
+            vend = max((c["end"] for t in s2["video"] if t["id"] == primary_vt for c in t["items"]), default=0)
+            if 0 < vend < vend_before:
+                for t in s2["audio"]:
+                    if t["id"] in tracks:
+                        for c in t["items"]:
+                            if c["end"] > vend > c["start"] and abs(c["end"] - vend_before) <= 2 * TICKS:
+                                ex(a, "timeline.trim", clip=c["clip"], edge="out", mode="regular", delta=vend - c["end"])
+
+def detect_acoustic_silences(path, min_dur=0.25):
+    """Detect silent intervals [(start, end), ...] in an audio file using adaptive RMS thresholding."""
+    if not path or not os.path.exists(path):
+        return [], 0.0
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", path, "-vn", "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
+        capture_output=True
+    ).stdout
+    if not raw:
+        return [], 0.0
+    x = array.array("h")
+    x.frombytes(raw[: len(raw) // 2 * 2])
+    win = 320  # 20ms at 16kHz
+    if len(x) < win:
+        return [], len(x) / 16000.0
+    dbs = [
+        20.0 * math.log10(max(math.sqrt(sum(v * v for v in x[i:i + win]) / win) / 32768.0, 1e-6))
+        for i in range(0, len(x) - win + 1, win)
+    ]
+    total_dur = len(x) / 16000.0
+    voiced = sorted(v for v in dbs if v > -90.0)
+    if not voiced:
+        return [(0.0, total_dur)] if total_dur >= min_dur else [], total_dur
+    p10 = voiced[int((len(voiced) - 1) * 0.10)]
+    p85 = voiced[int((len(voiced) - 1) * 0.85)]
+    thresh = min(-18.0, max(p10 + 6.0, p85 - 12.0))
+    silences = []
+    in_sil = None
+    for idx, db in enumerate(dbs):
+        t = idx * 0.02
+        if db < thresh:
+            if in_sil is None:
+                in_sil = t
+        else:
+            if in_sil is not None:
+                if t - in_sil >= min_dur - 1e-6:
+                    silences.append((in_sil, t))
+                in_sil = None
+    if in_sil is not None and total_dur - in_sil >= min_dur - 1e-6:
+        silences.append((in_sil, total_dur))
+    return silences, total_dur
+
+def _tighten_transcript_for_pauses(a, min_dur):
+    """Tighten and split word bounds around acoustic silences so transcript.removePauses catches all pauses."""
+    s = seq(a)
+    ti = ex(a, "transcript.inspect")
+    seq_words = ti.get("words", [])
+    clips_by_id = {c["clip"]: c for t in s["audio"] for c in t["items"]}
+    item_meta = {i["item"]: i for i in ti.get("items", [])}
+    all_audio_items = sorted({c["item"] for t in s["audio"] if not t["locked"] for c in t["items"]})
+    for item in all_audio_items:
+        props = ex(a, "file.mediaProperties", items=[item])[0]
+        path = props.get("path")
+        if not path or not os.path.exists(path):
+            continue
+        silences, total_dur = detect_acoustic_silences(path, min_dur)
+        if not silences:
+            continue
+        item_words = []
+        seen = set()
+        for w in seq_words:
+            if w.get("item") != item or w.get("clip") not in clips_by_id:
+                continue
+            c = clips_by_id[w["clip"]]
+            ws = (w["start"] - c["start"] + c["sourceIn"]) / TICKS
+            we = (w["end"] - c["start"] + c["sourceIn"]) / TICKS
+            key = (round(ws, 2), w["text"])
+            if key not in seen and we > ws:
+                seen.add(key)
+                item_words.append({"text": w["text"], "start": ws, "end": we})
+        item_words.sort(key=lambda w: w["start"])
+        if item_words:
+            tight = []
+            for w in item_words:
+                segs = [(w["text"], w["start"], w["end"])]
+                for s0, e0 in silences:
+                    next_segs = []
+                    for tx, ws, we in segs:
+                        if ws >= s0 and we <= e0:
+                            continue
+                        elif ws < s0 and we > e0:
+                            if s0 - ws > 0.03 and we - e0 > 0.03:
+                                next_segs.append((tx, ws, s0))
+                                next_segs.append(("...", e0, we))
+                            elif (s0 - ws) >= (we - e0):
+                                next_segs.append((tx, ws, s0))
+                            else:
+                                next_segs.append((tx, e0, we))
+                        elif ws < s0 < we <= e0:
+                            next_segs.append((tx, ws, s0))
+                        elif s0 <= ws < e0 < we:
+                            next_segs.append((tx, e0, we))
+                        else:
+                            next_segs.append((tx, ws, we))
+                    segs = next_segs
+                for tx, ws, we in segs:
+                    if we - ws > 0.02:
+                        tight.append({"text": tx, "start": int(round(ws * TICKS)), "end": int(round(we * TICKS))})
+            if tight:
+                lang = item_meta.get(item, {}).get("language") or getattr(a, "language", "en")
+                if lang == "auto":
+                    lang = "en"
+                ex(a, "transcript.set", item=item, transcript={"language": lang, "speakers": [{"name": "Speaker 1"}], "words": tight})
+        else:
+            # Non-speech audio clip with silent gaps: synthesize non-silent blocks so removePauses cuts the silences
+            blocks, cur = [], 0.0
+            for s0, e0 in silences:
+                if s0 - cur > 0.04:
+                    blocks.append({"text": "...", "start": int(round(cur * TICKS)), "end": int(round(s0 * TICKS))})
+                cur = e0
+            if total_dur - cur > 0.04:
+                blocks.append({"text": "...", "start": int(round(cur * TICKS)), "end": int(round(total_dur * TICKS))})
+            if len(blocks) >= 2:
+                ex(a, "transcript.set", item=item, transcript={"language": "en", "speakers": [{"name": "Speaker 1"}], "words": blocks})
 
 def remove_pauses(a):
     transcribe(a)
+    keep = min(getattr(a, "keep", 0.08), a.min * 0.25)
+    _tighten_transcript_for_pauses(a, a.min)
     with music_protected(a):
-        r = ex(a, "transcript.removePauses", minSeconds=a.min, keepSeconds=a.keep)
-    say(f"pauses: removed pauses longer than {a.min}s (kept {a.keep}s of breathing room) {short(r)}")
+        r = ex(a, "transcript.removePauses", minSeconds=a.min, keepSeconds=keep)
+    say(f"pauses: removed pauses longer than {a.min}s (kept {keep:.2g}s of breathing room) {short(r)}")
+
+FILLER_WORDS = [
+    "um", "uh", "umm", "uhm", "erm", "er", "ah", "ahh",
+    "eh", "ehh", "em", "emm", "hmm", "mm", "mhm",
+]
 
 def remove_fillers(a):
     transcribe(a)
     with music_protected(a):
-        r = ex(a, "transcript.removeFillers")
+        r = ex(a, "transcript.removeFillers", fillers=FILLER_WORDS)
     say(f"fillers: removed um/uh-type filler words {short(r)}")
 
 def norm(w):
@@ -308,13 +486,16 @@ def detect_beats(path, start=0.0, dur=None):
     return round(60 * fps / period, 1), beats
 
 def music_clip(a, s):
-    """The sequence's music: the longest clip on any audio track whose item is audio-only."""
+    """The sequence's music: the longest audio-only clip, or fallback to any clip with audio."""
     best = None
+    fallback = None
     for c in all_clips(s, "audio"):
         p = ex(a, "file.mediaProperties", items=[c["item"]])[0]
         if p.get("type") in ("Audio", "AudioOnly") and (best is None or c["duration"] > best[0]["duration"]):
             best = (c, p["path"])
-    return best
+        elif p.get("audio") and (fallback is None or c["duration"] > fallback[0]["duration"]):
+            fallback = (c, p["path"])
+    return best or fallback
 
 def sequence_beats(a, s):
     mc = music_clip(a, s)
@@ -336,7 +517,10 @@ def beat_cuts(a):
     """Move each cut on the main video track to the nearest beat (ripple trims; dissolves are rebuilt)."""
     s = seq(a)
     bpm, beats = sequence_beats(a, s)
-    vt = next(t for t in s["video"] if t["items"])
+    vt = next((t for t in s["video"] if t["items"]), None)
+    if not vt:
+        raise SystemExit("No video clips on the timeline.")
+    vend_before = max((c["end"] for c in vt["items"]), default=0)
     trans = [(tr["to"], tr["effect"], round(tr["duration"] / frame_ticks(s))) for tr in vt["transitions"] if tr["from"]]
     if vt["transitions"]: ex(a, "sequence.removeTransition", transitions=[tr["id"] for tr in vt["transitions"]])
     # Lock secondary video tracks (e.g. V2 overlays) and audio-only (music) tracks so ripple trims
@@ -351,12 +535,13 @@ def beat_cuts(a):
     finally:
         for t in other_v_tracks + music_tracks: ex(a, "timeline.setTrack", track=t, locked=False)
         s2 = seq(a)
-        vend = max(c["end"] for t in s2["video"] if t["id"] == vt["id"] for c in t["items"])
-        for t in s2["audio"]:
-            if t["id"] in music_tracks:
-                for c in t["items"]:
-                    if c["end"] > vend > c["start"]:
-                        ex(a, "timeline.trim", clip=c["clip"], edge="out", mode="regular", delta=vend - c["end"])
+        vend = max((c["end"] for t in s2["video"] if t["id"] == vt["id"] for c in t["items"]), default=0)
+        if 0 < vend < vend_before:
+            for t in s2["audio"]:
+                if t["id"] in music_tracks:
+                    for c in t["items"]:
+                        if c["end"] > vend > c["start"] and abs(c["end"] - vend_before) <= 2 * TICKS:
+                            ex(a, "timeline.trim", clip=c["clip"], edge="out", mode="regular", delta=vend - c["end"])
         for to, eff, frames in trans:
             ex(a, "sequence.applyVideoTransition", clip=to, effect=eff, frames=frames, edge="in")
     say(f"beat cuts: {bpm} BPM, {moved} cut(s) moved onto the beat" + (f", {len(trans)} transition(s) re-applied" if trans else ""))
@@ -366,8 +551,9 @@ def _snap_cuts(a, vt, beats, ft):
     for idx in range(len(vt["items"]) - 1):
         clips = next(t for t in seq(a)["video"] if t["id"] == vt["id"])["items"]
         c = clips[idx]
-        media = ex(a, "file.mediaProperties", items=[c["item"]])[0]["duration"]["ticks"]
-        handle = media - c["sourceOut"]
+        props = ex(a, "file.mediaProperties", items=[c["item"]])[0]
+        media = props["duration"]["ticks"]
+        handle = float("inf") if props.get("type") == "Still" else (media - c["sourceOut"])
         best = None
         for b in beats:
             bt = int(round(b * TICKS / ft)) * ft
@@ -383,12 +569,17 @@ def beat_zoom(a):
     s = seq(a)
     bpm, beats = sequence_beats(a, s)
     ft = frame_ticks(s); n = 0
-    clips = next(t for t in s["video"] if t["items"])["items"]
+    vt = next((t for t in s["video"] if t["items"]), None)
+    if not vt:
+        raise SystemExit("No video clips on the timeline.")
+    clips = vt["items"]
     for b in beats[:: a.every]:
         t = int(round(b * TICKS / ft)) * ft
         c = next((c for c in clips if c["start"] + ft <= t < c["end"] - 8 * ft), None)
         if not c: continue
-        base = float(next(e for e in c["effects"] if e["effect"] == "motion")["params"]["scale"]["value"][6:-1])
+        raw_scale = str(next(e for e in c["effects"] if e["effect"] == "motion")["params"]["scale"]["value"])
+        m = re.search(r"[-+]?[0-9]*\.?[0-9]+", raw_scale)
+        base = float(m.group(0)) if m else 100.0
         for tt, v in ((t - ft, base), (t, base * (1 + a.amount / 100)), (t + 8 * ft, base)):
             ex(a, "effects.setParam", clip=c["clip"], effect="motion", param="scale", value=v, time=tt, keyframe=True)
         n += 1
@@ -397,15 +588,30 @@ def beat_zoom(a):
 
 # ---------------------------------------------------------------- AutoReel
 
+def _resolve_music_path(music):
+    if not music:
+        return None
+    if os.path.isfile(music):
+        return music
+    shared = os.path.join(os.path.expanduser("~/Music/AutoEdit"), music)
+    if os.path.isfile(shared):
+        return shared
+    return music
+
 def reel(a):
     """Build a new beat-cut vertical reel from the clips on the current timeline plus a song."""
     s = seq(a)
-    src = next(t for t in s["video"] if t["items"])["items"]
-    music = a.music
+    vt = next((t for t in s["video"] if t["items"]), None)
+    if not vt:
+        raise SystemExit("No video clips on the timeline to build a reel from.")
+    src = vt["items"]
+    music = _resolve_music_path(a.music)
     if not music:
         mc = music_clip(a, s)
         if not mc: raise SystemExit("Pick a song for the reel.")
         music = mc[1]
+    if not os.path.isfile(music):
+        raise SystemExit(f"Music file not found: {music}")
     bpm, beats = detect_beats(music, 0, a.length + 5)
     if len(beats) < 4: raise SystemExit("Could not find a beat in that song.")
     st = s["settings"]; fr = st["frame_rate"]
@@ -416,16 +622,24 @@ def reel(a):
     slot = a.beats_per_shot
     first = beats[0]                                            # the reel starts on the first beat
     cuts = [int(round((b - first) * TICKS / ft)) * ft for b in beats[::slot] if b - first <= a.length]
-    cursor = {c["clip"]: c["sourceIn"] + min(TICKS, (c["sourceOut"] - c["sourceIn"]) // 10) for c in src}  # skip the shaky start
+    props_by_item = {c["item"]: ex(a, "file.mediaProperties", items=[c["item"]])[0] for c in src}
+    cursor = {
+        c["clip"]: 0 if props_by_item[c["item"]].get("type") == "Still" else (c["sourceIn"] + min(TICKS, (c["sourceOut"] - c["sourceIn"]) // 10))
+        for c in src
+    }  # skip the shaky start on video clips
     shots = 0
     for k in range(len(cuts) - 1):
         c = src[k % len(src)]
         dur = cuts[k + 1] - cuts[k]
-        si = cursor[c["clip"]]
-        if si + dur > c["sourceOut"]: si = c["sourceIn"]        # wrap around inside the clip
-        if si + dur > c["sourceOut"]: dur = c["sourceOut"] - si  # clip shorter than the slot
-        ex(a, "timeline.place", item=c["item"], track=v1, time=cuts[k], insert=False, sourceIn=si, duration=dur, audio=False)
-        cursor[c["clip"]] = si + dur + 2 * TICKS              # next time, use a later moment of this clip
+        is_still = props_by_item[c["item"]].get("type") == "Still"
+        if is_still:
+            ex(a, "timeline.place", item=c["item"], track=v1, time=cuts[k], insert=False, sourceIn=0, duration=dur, audio=False)
+        else:
+            si = cursor[c["clip"]]
+            if si + dur > c["sourceOut"]: si = c["sourceIn"]        # wrap around inside the clip
+            if si + dur > c["sourceOut"]: dur = c["sourceOut"] - si  # clip shorter than the slot
+            ex(a, "timeline.place", item=c["item"], track=v1, time=cuts[k], insert=False, sourceIn=si, duration=dur, audio=False)
+            cursor[c["clip"]] = si + dur + 2 * TICKS              # next time, use a later moment of this clip
         shots += 1
     end = cuts[-1]
     imp = fc(["import", music], a); autoedit_steps(1)

@@ -4,7 +4,7 @@ Each feature writes a small HyperFrames composition sized to the active sequence
 WebM with alpha (FilmCraft reads VP9 alpha; it is ~80x smaller than ProRes 4444), imports it and
 lays it on a video track above the footage.
 """
-import html, json, os, re, shutil, subprocess, sys, tempfile, time
+import glob, html, json, os, re, shutil, subprocess, sys, tempfile, time
 from autoedit import ex, fc, seq, TICKS, STEPS
 import features as F
 
@@ -22,12 +22,24 @@ def _setup_path():
             os.path.join(userprofile, "scoop", "shims"),
             r"C:\ProgramData\chocolatey\bin",
             r"C:\Program Files\ffmpeg\bin",
+            r"C:\Program Files\nodejs",
         ]:
             if d and os.path.exists(d): extra.append(d)
     elif sys.platform == "darwin":
         extra = [os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
     else:
         extra = [os.path.expanduser("~/.local/bin"), "/usr/local/bin", "/usr/bin"]
+    if sys.platform != "win32":
+        for pat in [
+            "~/.local/share/mise/shims",
+            "~/.local/share/mise/installs/node/*/bin",
+            "~/.nvm/versions/node/*/bin",
+            "~/.volta/bin",
+            "~/.bun/bin",
+        ]:
+            for p in sorted(glob.glob(os.path.expanduser(pat)), reverse=True):
+                if os.path.isdir(p):
+                    extra.append(p)
     cur = os.environ.get("PATH", "")
     to_add = [d for d in extra if d not in cur]
     if to_add:
@@ -36,16 +48,51 @@ def _setup_path():
 _setup_path()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GSAP = os.path.join(HERE, "hyperframes", "node_modules", "gsap", "dist", "gsap.min.js")
+
+def _find_hf_dir():
+    candidates = [
+        os.path.join(HERE, "hyperframes"),
+        os.path.expanduser("~/.local/share/autoedit/hyperframes"),
+        os.path.expanduser("~/Library/Application Support/AutoEdit/hyperframes"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "AutoEdit", "hyperframes"),
+        os.path.expanduser("~/Projects/autoedit/hyperframes"),
+    ]
+    for d in candidates:
+        if d and os.path.isdir(os.path.join(d, "node_modules")):
+            return d
+    for d in candidates:
+        if d and os.path.isfile(os.path.join(d, "package.json")):
+            return d
+    return os.path.join(HERE, "hyperframes")
+
+HF_DIR = _find_hf_dir()
+GSAP = os.path.join(HF_DIR, "node_modules", "gsap", "dist", "gsap.min.js")
 
 def find_hyperframes():
+    hf_dir = _find_hf_dir()
     bin_name = "hyperframes.cmd" if sys.platform == "win32" else "hyperframes"
-    hf_path = os.path.join(HERE, "hyperframes", "node_modules", ".bin", bin_name)
+    hf_path = os.path.join(hf_dir, "node_modules", ".bin", bin_name)
     if os.path.exists(hf_path): return hf_path
-    fallback = os.path.join(HERE, "hyperframes", "node_modules", ".bin", "hyperframes")
+    fallback = os.path.join(hf_dir, "node_modules", ".bin", "hyperframes")
     if os.path.exists(fallback): return fallback
     which = shutil.which(bin_name) or shutil.which("hyperframes")
     return which or hf_path
+
+def _ensure_hyperframes():
+    global HF_DIR, GSAP
+    HF_DIR = _find_hf_dir()
+    GSAP = os.path.join(HF_DIR, "node_modules", "gsap", "dist", "gsap.min.js")
+    hf_bin = find_hyperframes()
+    if (os.path.exists(hf_bin) or shutil.which(hf_bin)) and os.path.exists(GSAP):
+        return hf_bin
+    npm_bin = shutil.which("npm.cmd" if sys.platform == "win32" else "npm") or shutil.which("npm")
+    if npm_bin and os.path.isfile(os.path.join(HF_DIR, "package.json")):
+        subprocess.run([npm_bin, "install", "--no-audit", "--no-fund"], cwd=HF_DIR,
+                       capture_output=True, text=True, shell=(sys.platform == "win32"))
+        HF_DIR = _find_hf_dir()
+        GSAP = os.path.join(HF_DIR, "node_modules", "gsap", "dist", "gsap.min.js")
+        hf_bin = find_hyperframes()
+    return hf_bin
 
 HF = find_hyperframes()
 
@@ -62,9 +109,11 @@ else:
 
 # Colour themes shared by every overlay.
 THEMES = {
-    "pastel": {"text": "#ffffff", "accent": "#e58bb8", "pill": "#c86fa0", "shadow": "rgba(90,30,70,.55)"},
-    "bold":   {"text": "#ffffff", "accent": "#ffd23f", "pill": "#111111", "shadow": "rgba(0,0,0,.7)"},
-    "clean":  {"text": "#ffffff", "accent": "#9ad0ff", "pill": "#00000099", "shadow": "rgba(0,0,0,.6)"},
+    "pastel":    {"text": "#ffffff", "accent": "#e58bb8", "pill": "#c86fa0", "shadow": "rgba(90,30,70,.55)"},
+    "bold":      {"text": "#ffffff", "accent": "#ffd23f", "pill": "#111111", "shadow": "rgba(0,0,0,.7)"},
+    "clean":     {"text": "#ffffff", "accent": "#9ad0ff", "pill": "#00000099", "shadow": "rgba(0,0,0,.6)"},
+    "editorial": {"text": "#ffffff", "accent": "#e58bb8", "pill": "#c86fa0", "shadow": "rgba(90,30,70,.55)"},
+    "minimal":   {"text": "#ffffff", "accent": "#9ad0ff", "pill": "#00000099", "shadow": "rgba(0,0,0,.6)"},
 }
 FONT = '"Avenir Next","Helvetica Neue",system-ui,sans-serif'
 
@@ -91,7 +140,7 @@ window.__timelines["main"] = tl;
 
 def render(name, doc, fps):
     """Render a composition to a transparent WebM in AutoEdit Overlays and return its path."""
-    hf_bin = find_hyperframes()
+    hf_bin = _ensure_hyperframes()
     if not os.path.exists(hf_bin) and not shutil.which(hf_bin):
         raise SystemExit("HyperFrames isn't installed. Run the AutoEdit installer again (it sets up motion graphics).")
     os.makedirs(OUT, exist_ok=True)
@@ -134,9 +183,9 @@ def place(a, path, start_ticks, track_name):
 # ---------------------------------------------------------------- title card + outro
 
 def card_doc(w, h, dur, title, sub, theme, position, exit_anim=True):
-    t = THEMES[theme]
+    t = THEMES.get(theme, THEMES["pastel"])
     k = w / 1080                                  # scale type with the frame width
-    top = {"top": "18%", "middle": "42%", "bottom": "64%"}[position]
+    top = {"top": "18%", "middle": "42%", "bottom": "64%"}.get(position, "42%")
     css = f"""
 .card{{position:absolute;left:0;right:0;top:{top};display:flex;flex-direction:column;align-items:center;gap:{22*k:.0f}px;padding:0 {60*k:.0f}px}}
 .title{{font-size:{128*k:.0f}px;font-weight:800;line-height:1.05;text-align:center;color:{t['text']};letter-spacing:-1px;
@@ -163,9 +212,9 @@ def title_card(a):
 def outro(a):
     s = seq(a)
     w, h, fps = seq_format(s)
-    end = max(c["end"] for t in s["video"] for c in t["items"])
+    end = max((c["end"] for t in s["video"] for c in t["items"]), default=s.get("duration", 0))
     start = max(0, end - int(a.seconds * TICKS))
-    path = render("outro", card_doc(w, h, a.seconds, a.title, a.subtitle, a.theme, a.position, exit_anim=False), fps)
+    path = render("outro", card_doc(w, h, a.seconds, a.title, a.subtitle, a.theme, getattr(a, "position", "middle"), exit_anim=False), fps)
     place(a, path, start, "Titles")
     print(f"outro: “{a.title}” added over the last {a.seconds:g}s")
 
@@ -188,10 +237,12 @@ CAPTION_STYLES = {
     "karaoke": {"theme": "bold",   "highlight": "color", "enter": "pop"},
     "pastel":  {"theme": "pastel", "highlight": "pill",  "enter": "rise"},
     "bounce":  {"theme": "bold",   "highlight": "scale", "enter": "word"},
+    "pop":     {"theme": "bold",   "highlight": "color", "enter": "pop"},
+    "clean":   {"theme": "clean",  "highlight": "pill",  "enter": "rise"},
 }
 
 def captions_doc(w, h, dur, groups, style):
-    st = CAPTION_STYLES[style]; t = THEMES[st["theme"]]
+    st = CAPTION_STYLES.get(style, CAPTION_STYLES["karaoke"]); t = THEMES[st["theme"]]
     k = w / 1080
     css = f"""
 .cap{{position:absolute;left:{50*k:.0f}px;right:{50*k:.0f}px;bottom:22%;display:flex;flex-wrap:wrap;justify-content:center;gap:0 {16*k:.0f}px}}

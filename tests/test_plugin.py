@@ -82,6 +82,37 @@ class TestFilmCraftPlugin(unittest.TestCase):
             rc = plugin_runner.main(["zoom", "--params-json", '{"amount": 6.0}', "--bridge", "127.0.0.1:9876"])
             self.assertEqual(rc, 0)
 
+    def test_music_protected_does_not_lock_or_trim_voiceover_audio(self):
+        import argparse
+        import features as F
+
+        seq_state = {
+            "video": [{"id": "V1", "locked": False, "items": [{"clip": 1, "item": 10, "start": 0, "end": 10 * F.TICKS}]}],
+            "audio": [{"id": "A1", "locked": False, "items": [{"clip": 2, "item": 20, "start": 0, "end": 50 * F.TICKS}]}],
+        }
+        calls = []
+
+        def fake_ex(a, cid, **kw):
+            calls.append((cid, kw))
+            if cid == "transcript.inspect":
+                return {"items": [{"item": 20, "words": 180}]}
+            if cid == "file.mediaProperties":
+                it = kw["items"][0]
+                if it == 10:
+                    return [{"type": "Still", "path": "/tmp/1.jpg"}]
+                return [{"type": "AudioOnly", "audio": True, "path": "/tmp/vo.mp3"}]
+            return {}
+
+        with patch("features.seq", return_value=seq_state), patch("features.ex", side_effect=fake_ex):
+            with F.music_protected(argparse.Namespace()):
+                pass
+
+        locked_tracks = [kw["track"] for cid, kw in calls if cid == "timeline.setTrack" and kw.get("locked") is True]
+        self.assertIn("V1", locked_tracks)
+        self.assertNotIn("A1", locked_tracks)
+        trim_calls = [kw for cid, kw in calls if cid == "timeline.trim"]
+        self.assertEqual(trim_calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

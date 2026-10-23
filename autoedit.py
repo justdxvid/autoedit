@@ -57,7 +57,9 @@ def seq(a):
     return fc(["inspect", "sequence"], a)
 
 def video_clips(s):
-    t = next(t for t in s["video"] if t["items"])
+    t = next((t for t in s["video"] if t["items"]), None)
+    if not t:
+        raise SystemExit("No video clips on the timeline.")
     return t["items"]
 
 def smooth(a):
@@ -69,8 +71,13 @@ def smooth(a):
         if c["clip"] not in existing:
             added += 1
             ex(a, "sequence.applyVideoTransition", clip=c["clip"], effect="cross_dissolve", frames=a.frames, edge="in")
+    music_track = None
     if a.music:
-        item = fc(["import", a.music], a); STEPS[0] += 1
+        music_path = a.music
+        shared = os.path.join(os.path.expanduser("~/Music/AutoEdit"), a.music)
+        if not os.path.exists(music_path) and os.path.exists(shared):
+            music_path = shared
+        item = fc(["import", music_path], a); STEPS[0] += 1
         item = item["items"][0] if isinstance(item, dict) else None
         # an EMPTY audio track for the song, never one holding the clips' own sound (a new one if none is free)
         free = [t for t in s["audio"] if not t["items"]]
@@ -80,11 +87,13 @@ def smooth(a):
             before = {t["id"] for t in s["audio"]}
             ex(a, "sequence.addTracks", video=0, audio=1)
             track = next(t["id"] for t in seq(a)["audio"] if t["id"] not in before)
+        music_track = track
         end = s["duration"]
         placed = ex(a, "timeline.place", item=item, audioTrack=track, seconds=0, insert=False, video=False, duration=end)
         ex(a, "clip.audioGain", clips=placed["clips"], mode="set", db=a.music_db)
     if a.mute_original:
-        for t in s["audio"][:-1]:
+        targets = [t for t in s["audio"] if t["id"] != music_track] if music_track is not None else s["audio"][:-1]
+        for t in targets:
             if t["items"]:
                 ex(a, "timeline.setTrack", track=t["id"], muted=True)
     print(f"smooth: {added} dissolves added ({len(vc)-1-added} cuts already had one)" + (", music added" if a.music else ""))
@@ -97,7 +106,7 @@ def zoom(a):
         v0 = float(m.group(0)) if m else 100.0
         v1 = v0 * (1 + a.amount / 100) if i % 2 == 0 else v0
         v0 = v0 if i % 2 == 0 else v0 * (1 + a.amount / 100)   # alternate push-in / pull-out
-        frame = TICKS * 1001 // 30000 if False else c["duration"] // c["durationFrames"]
+        frame = c["duration"] // max(1, c.get("durationFrames") or 1)
         for t, v in ((c["start"], v0), (c["end"] - frame, v1)):
             ex(a, "effects.setParam", clip=c["clip"], effect="motion", param="scale", value=v, time=t, keyframe=True)
     print(f"zoom: {len(video_clips(s))} clips animated (±{a.amount}%)")

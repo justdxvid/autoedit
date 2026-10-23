@@ -47,6 +47,13 @@ def install_plugin(target_root=None):
     shutil.copy2(src_runner, os.path.join(dest, "plugin_runner.py"))
     with open(os.path.join(dest, "autoedit_root.txt"), "w", encoding="utf-8") as f:
         f.write(AUTOEDIT_ROOT)
+    src_hf = os.path.join(AUTOEDIT_ROOT, "hyperframes")
+    dest_hf = os.path.join(dest, "hyperframes")
+    if os.path.isdir(src_hf) and os.path.abspath(src_hf) != os.path.abspath(dest_hf) and not os.path.exists(dest_hf):
+        try:
+            os.symlink(src_hf, dest_hf, target_is_directory=True)
+        except OSError:
+            pass
     return dest
 
 
@@ -67,12 +74,12 @@ DEFAULT_PARAMS = {
     "beatzoom": {"every": 4, "amount": 7.0},
     "beatmarkers": {"every": 1},
     "captions": {"style": "pop", "language": "auto"},
-    "animcaptions": {"style": "pop", "language": "auto"},
-    "pauses": {"min": 0.6, "language": "auto"},
+    "animcaptions": {"style": "karaoke", "language": "auto"},
+    "pauses": {"min": 0.3, "language": "auto"},
     "fillers": {"language": "auto"},
     "badtakes": {"language": "auto"},
-    "title": {"title": "Summer Edit", "subtitle": "", "theme": "editorial", "position": "middle", "seconds": 3.0},
-    "outro": {"title": "Follow for more", "subtitle": "", "theme": "editorial", "position": "middle", "seconds": 3.0},
+    "title": {"title": "Summer Edit", "subtitle": "", "theme": "pastel", "position": "middle", "seconds": 3.0},
+    "outro": {"title": "Follow for more", "subtitle": "", "theme": "pastel", "position": "middle", "seconds": 3.0},
     "reel": {"music": "", "length": 30.0, "bps": 2},
 }
 
