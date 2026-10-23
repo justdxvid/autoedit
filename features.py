@@ -211,18 +211,21 @@ import contextlib
 
 @contextlib.contextmanager
 def music_protected(a):
-    """Lock audio-only (music) tracks while speech is cut, then trim the song to the new video end.
-    Without this, ripple cuts chop the music into pieces that jump around the song."""
+    """Lock audio-only (music) tracks and secondary video overlay tracks while speech is cut,
+    then trim the song to the new video end. Without this, ripple cuts chop the music or fail
+    when a sync-locked overlay track (e.g. V2) has clips in the way."""
     s = seq(a)
+    primary_vt = next((t["id"] for t in s["video"] if t["items"]), None)
+    v_tracks = [t["id"] for t in s["video"] if t["id"] != primary_vt and not t["locked"] and t["items"]]
     tracks = [t["id"] for t in s["audio"] if not t["locked"] and t["items"] and
               all(ex(a, "file.mediaProperties", items=[c["item"]])[0].get("type") in ("Audio", "AudioOnly") for c in t["items"])]
-    for t in tracks: ex(a, "timeline.setTrack", track=t, locked=True)
+    for t in v_tracks + tracks: ex(a, "timeline.setTrack", track=t, locked=True)
     try:
         yield
     finally:
-        for t in tracks: ex(a, "timeline.setTrack", track=t, locked=False)
+        for t in v_tracks + tracks: ex(a, "timeline.setTrack", track=t, locked=False)
         s2 = seq(a)
-        vend = max((c["end"] for t in s2["video"] for c in t["items"]), default=0)
+        vend = max((c["end"] for t in s2["video"] if t["id"] == primary_vt for c in t["items"]), default=0)
         for t in s2["audio"]:
             if t["id"] in tracks:
                 for c in t["items"]:
@@ -336,17 +339,19 @@ def beat_cuts(a):
     vt = next(t for t in s["video"] if t["items"])
     trans = [(tr["to"], tr["effect"], round(tr["duration"] / frame_ticks(s))) for tr in vt["transitions"] if tr["from"]]
     if vt["transitions"]: ex(a, "sequence.removeTransition", transitions=[tr["id"] for tr in vt["transitions"]])
-    # Lock tracks holding audio-only clips (the music) so ripple trims don't drag the song along.
+    # Lock secondary video tracks (e.g. V2 overlays) and audio-only (music) tracks so ripple trims
+    # don't fail on sync-locked V2 clips or drag the song along.
+    other_v_tracks = [t["id"] for t in s["video"] if t["id"] != vt["id"] and not t["locked"] and t["items"]]
     music_tracks = [t["id"] for t in s["audio"] if not t["locked"] and t["items"] and
                     all(ex(a, "file.mediaProperties", items=[c["item"]])[0].get("type") in ("Audio", "AudioOnly") for c in t["items"])]
-    for t in music_tracks: ex(a, "timeline.setTrack", track=t, locked=True)
+    for t in other_v_tracks + music_tracks: ex(a, "timeline.setTrack", track=t, locked=True)
     ft = frame_ticks(s); moved = 0
     try:
         moved = _snap_cuts(a, vt, beats, ft)
     finally:
-        for t in music_tracks: ex(a, "timeline.setTrack", track=t, locked=False)
+        for t in other_v_tracks + music_tracks: ex(a, "timeline.setTrack", track=t, locked=False)
         s2 = seq(a)
-        vend = max(c["end"] for t in s2["video"] for c in t["items"])
+        vend = max(c["end"] for t in s2["video"] if t["id"] == vt["id"] for c in t["items"])
         for t in s2["audio"]:
             if t["id"] in music_tracks:
                 for c in t["items"]:
